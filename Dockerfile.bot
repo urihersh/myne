@@ -1,0 +1,11 @@
+FROM node:20-slim
+
+WORKDIR /app/bot
+
+COPY bot/package*.json ./
+RUN npm ci --omit=dev
+
+COPY bot/ .
+
+EXPOSE 3001
+CMD ["node", "bot.js"]

@@ -1,0 +1,23 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Node
+bot/node_modules/
+
+# Data & secrets
+data/
+.env
+*.db
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store

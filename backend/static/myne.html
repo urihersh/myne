@@ -1,0 +1,1880 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Myne</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="/static/lang.js?v=1"></script>
+  <script>tailwind.config = { theme: { extend: { fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] } } } }</script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/static/dark.css" />
+  <style>
+    .tab-btn { padding: 0.75rem 1.25rem; font-size: 0.875rem; font-weight: 500; border-bottom: 2px solid transparent; color: #6b7280; transition: all 0.15s; white-space: nowrap; }
+    .tab-btn:hover { color: #111827; }
+    .tab-btn.active { border-bottom-color: #10b981; color: #059669; }
+    .kid-card { transition: transform 0.15s, box-shadow 0.15s; cursor: pointer; }
+    .kid-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.1); }
+    .kid-card.selected { ring: 2px; }
+    .section-card { background: white; border-radius: 1rem; border: 1px solid #f3f4f6; box-shadow: 0 1px 3px rgba(0,0,0,0.05); margin-bottom: 1rem; }
+    .kbd-active { background: #ecfdf5 !important; outline: 2px solid #10b981; outline-offset: -2px; }
+    .accordion-header { width: 100%; padding: 1rem 1.25rem; display: flex; align-items: center; justify-content: space-between; text-align: start; }
+    .accordion-header:hover { background: #f9fafb; border-radius: 1rem; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen font-sans antialiased">
+
+  <div id="toast" class="hidden fixed top-6 end-6 px-4 py-3 rounded-xl text-sm font-medium shadow-lg z-50"></div>
+
+  <!-- Photo lightbox -->
+  <div id="lightbox" class="hidden fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onclick="closeLightbox()">
+    <img id="lightbox-img" src="" class="max-h-[90vh] max-w-[90vw] rounded-2xl shadow-2xl object-contain" onclick="event.stopPropagation()" />
+    <button onclick="closeLightbox()" class="absolute top-4 right-4 w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white text-lg flex items-center justify-center transition-colors">✕</button>
+  </div>
+
+  <!-- Add Kid modal -->
+  <div id="add-kid-modal" class="hidden fixed inset-0 bg-black/40 z-40 flex items-center justify-center">
+    <div class="bg-white rounded-2xl shadow-xl p-6 w-80">
+      <h3 class="font-semibold text-gray-900 mb-4" data-i18n="add_a_kid">Add a Kid</h3>
+      <input id="new-kid-name" type="text" placeholder="e.g. Emma" data-i18n="kid_name_placeholder"
+             class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+             onkeydown="if(event.key==='Enter') confirmAddKid()" />
+      <div class="flex gap-2">
+        <button onclick="confirmAddKid()" class="flex-1 py-2 bg-emerald-600 text-white text-sm font-medium rounded-xl hover:bg-emerald-700 transition-colors" data-i18n="add">Add</button>
+        <button onclick="closeModal()" class="flex-1 py-2 bg-gray-100 text-gray-600 text-sm font-medium rounded-xl hover:bg-gray-200 transition-colors" data-i18n="cancel">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Nav -->
+  <nav class="bg-white sticky top-0 z-30 shadow-sm border-b border-gray-100">
+    <div class="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-2">
+        <img src="/static/favicon.svg" class="w-7 h-7" alt="Myne" />
+        <span class="text-sm font-bold text-gray-900">Myne</span>
+      </a>
+      <div class="flex items-center gap-1.5">
+        <div id="nav-status" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-100 text-xs font-medium text-gray-400">
+          <span id="nav-dot" class="w-1.5 h-1.5 rounded-full bg-gray-300 flex-shrink-0"></span>
+          <span id="nav-name">Connecting…</span>
+        </div>
+        <button id="dark-toggle" onclick="toggleDark()" class="p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors">
+          <svg id="dark-icon-moon" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+          <svg id="dark-icon-sun" class="w-4 h-4 hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707M17.657 17.657l-.707-.707M6.343 6.343l-.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z"/></svg>
+        </button>
+      </div>
+    </div>
+    <!-- Tab bar -->
+    <div class="max-w-6xl mx-auto px-6">
+      <div class="flex overflow-x-auto">
+        <button onclick="showTab('activity')" id="tab-btn-activity" class="tab-btn active" data-i18n="tab_activity">Activity</button>
+        <button onclick="showTab('kids')" id="tab-btn-kids" class="tab-btn" data-i18n="tab_kids">Kids</button>
+        <button onclick="showTab('groups')" id="tab-btn-groups" class="tab-btn" data-i18n="tab_groups">Groups</button>
+        <button onclick="showTab('actions')" id="tab-btn-actions" class="tab-btn" data-i18n="tab_actions">Actions</button>
+        <button onclick="showTab('settings')" id="tab-btn-settings" class="tab-btn" data-i18n="tab_settings">Settings</button>
+      </div>
+    </div>
+  </nav>
+
+  <main class="max-w-6xl mx-auto px-6 py-6">
+
+    <!-- Model loading banner -->
+    <div id="model-banner" class="hidden mb-5 flex items-center gap-3 px-4 py-3 bg-blue-50 border border-blue-200 rounded-2xl text-sm text-blue-800">
+      <svg class="w-4 h-4 text-blue-500 flex-shrink-0 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+      <span id="model-banner-text"></span>
+    </div>
+
+    <!-- ── ACTIVITY TAB ───────────────────────────────────────────────────────── -->
+    <div id="tab-activity">
+
+      <!-- Today stats -->
+      <div class="grid grid-cols-3 gap-4 mb-6">
+        <div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-center">
+          <p class="text-2xl font-bold text-emerald-600" id="act-matched">—</p>
+          <p class="text-xs text-gray-400 mt-0.5" data-i18n="matched_today">matched today</p>
+        </div>
+        <div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-center">
+          <p class="text-2xl font-bold text-gray-700" id="act-scanned">—</p>
+          <p class="text-xs text-gray-400 mt-0.5" data-i18n="scanned_today">scanned today</p>
+        </div>
+        <div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 text-center">
+          <p class="text-2xl font-bold text-gray-700" id="act-rate">—</p>
+          <p class="text-xs text-gray-400 mt-0.5" data-i18n="match_rate">match rate</p>
+        </div>
+      </div>
+
+      <!-- Digest banner -->
+      <div id="digest-banner" class="hidden mb-5 flex items-center gap-3 px-4 py-3 bg-orange-50 border border-orange-200 rounded-2xl text-sm text-orange-800">
+        <svg class="w-4 h-4 text-orange-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+        <span data-i18n="digest_on_prefix">Digest mode on ·</span> <strong id="digest-count">0</strong> <span data-i18n="photos_queued">photos queued</span>
+        <button onclick="sendDigestNow()" class="ms-auto px-3 py-1 bg-orange-500 text-white text-xs font-medium rounded-lg hover:bg-orange-600 transition-colors" data-i18n="send_now">Send now</button>
+      </div>
+
+      <!-- Activity log -->
+      <div class="bg-white rounded-2xl shadow-sm border border-gray-100 mb-5">
+        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <h2 class="font-semibold text-gray-900" data-i18n="recent_activity">Recent Activity</h2>
+          <div class="flex items-center gap-3">
+            <span class="text-xs text-gray-400" data-i18n="auto_refreshes">auto-refreshes</span>
+            <div class="flex items-center rounded-xl overflow-hidden border border-gray-200">
+              <button id="view-btn-table" onclick="setActivityView('table')" class="p-1.5 text-gray-400 hover:bg-gray-50 transition-colors" title="Table view">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 10h16M4 14h16M4 18h16"/></svg>
+              </button>
+              <button id="view-btn-grid" onclick="setActivityView('grid')" class="p-1.5 text-gray-400 hover:bg-gray-50 transition-colors" title="Grid view">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+              </button>
+            </div>
+            <button onclick="clearActivity()" class="text-xs text-red-400 hover:text-red-600 transition-colors" data-i18n="clear">Clear</button>
+          </div>
+        </div>
+        <div class="px-5 py-2.5 flex flex-wrap gap-2 border-b border-gray-100">
+          <select id="filter-matched" onchange="loadActivity()" class="border border-gray-200 rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
+            <option value="" data-i18n-opt="all_results">All results</option>
+            <option value="true" data-i18n-opt="matches_only">Matches only</option>
+            <option value="false" data-i18n-opt="no_match_only">No-match only</option>
+          </select>
+          <input type="text" id="filter-group" placeholder="Filter by group…" data-i18n="filter_by_group" oninput="debouncedFilter()"
+                 class="border border-gray-200 rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-400 w-36" />
+          <input type="text" id="filter-kid" placeholder="Filter by kid…" data-i18n="filter_by_kid" oninput="debouncedFilter()"
+                 class="border border-gray-200 rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-400 w-28" />
+          <button onclick="clearFilters()" class="text-xs text-gray-400 hover:text-gray-600 transition-colors px-2" data-i18n="reset">Reset</button>
+        </div>
+        <div id="activity-table-wrap">
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-gray-50/70">
+                <tr>
+                  <th class="px-3 py-3 w-12"></th>
+                  <th class="text-start px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide" data-i18n="col_time">Time</th>
+                  <th class="text-start px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide" data-i18n="col_sender">Sender</th>
+                  <th class="text-start px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide" data-i18n="col_group">Group</th>
+                  <th class="text-start px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide" data-i18n="col_faces">Faces</th>
+                  <th class="text-start px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide" data-i18n="col_result">Result</th>
+                  <th class="text-start px-5 py-3 text-xs font-medium text-gray-400 uppercase tracking-wide" data-i18n="col_conf">Conf.</th>
+                  <th class="px-3 py-3 w-20"></th>
+                </tr>
+              </thead>
+              <tbody id="activity-body">
+                <tr><td colspan="7" class="px-5 py-10 text-center text-gray-300" data-i18n="loading">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div id="activity-grid-wrap" class="hidden p-4">
+          <div id="activity-grid" class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 gap-3"></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── KIDS TAB ────────────────────────────────────────────────────────────── -->
+    <div id="tab-kids" class="hidden">
+      <div class="flex items-center justify-between mb-5">
+        <div>
+          <h2 class="font-semibold text-gray-900" data-i18n="enrolled_kids">Enrolled Kids</h2>
+          <p class="text-xs text-gray-400 mt-0.5" id="kids-subtitle" data-i18n="kids_subtitle">Upload clear face photos for each kid</p>
+        </div>
+      </div>
+
+      <!-- Kids grid -->
+      <div id="kids-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-6">
+        <!-- Cards rendered by JS. Last card is always "+ Add Kid" -->
+      </div>
+
+      <!-- Kid detail panel -->
+      <div id="kid-detail" class="hidden bg-white rounded-2xl shadow-sm border border-gray-100">
+        <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <div class="flex items-center gap-1.5">
+              <h3 id="kid-detail-name" class="font-semibold text-gray-900"></h3>
+              <button onclick="startRename()" id="rename-btn" data-i18n-title="rename_tooltip" title="Rename" class="p-1 text-gray-300 hover:text-gray-500 rounded transition-colors">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg>
+              </button>
+              <input id="rename-input" type="text" class="hidden font-semibold text-gray-900 border-b border-emerald-400 outline-none bg-transparent w-40"
+                     onkeydown="if(event.key==='Enter')commitRename();else if(event.key==='Escape')cancelRename();"
+                     onblur="commitRename()" />
+            </div>
+            <p id="kid-detail-count" class="text-xs text-gray-400 mt-0.5"></p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="delete-kid-btn" class="px-3 py-1.5 text-xs text-red-500 bg-red-50 rounded-xl hover:bg-red-100 transition-colors font-medium" data-i18n="delete_kid">Delete Kid</button>
+            <button onclick="closeKidDetail()" class="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-xl transition-colors">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="p-5">
+          <!-- Upload area -->
+          <div id="drop-zone" class="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center cursor-pointer hover:border-emerald-400 hover:bg-emerald-50 transition-colors mb-5">
+            <p class="text-gray-700 font-medium mb-1" data-i18n="drop_photos">Drop photos here or click to upload</p>
+            <p class="text-gray-400 text-sm" data-i18n="photo_hint">JPG, PNG, WEBP — multiple files OK</p>
+            <p class="text-xs text-gray-400 mt-1" data-i18n="photo_tip">💡 One clear face per photo, good lighting</p>
+            <input type="file" id="file-input" accept="image/*" multiple class="hidden" />
+          </div>
+
+          <!-- Pending section -->
+          <div id="pending-section" class="hidden mb-5">
+            <div class="flex items-center justify-between mb-3">
+              <h4 class="font-semibold text-gray-900 text-sm" data-i18n="confirm_faces">Confirm Faces</h4>
+              <button onclick="confirmAll()" class="px-3 py-1.5 bg-emerald-600 text-white text-xs font-medium rounded-xl hover:bg-emerald-700 transition-colors" data-i18n="enroll_all">Enroll All</button>
+            </div>
+            <div id="pending-grid" class="grid grid-cols-3 sm:grid-cols-5 gap-3"></div>
+          </div>
+
+          <!-- Enrolled photos -->
+          <div>
+            <div class="flex items-center justify-between mb-3">
+              <h4 class="font-semibold text-gray-900 text-sm" data-i18n="enrolled_photos">Enrolled Photos</h4>
+              <button onclick="deleteAllOriginals()" id="delete-originals-btn" class="hidden text-xs text-gray-400 hover:text-red-500 transition-colors" data-i18n="delete_originals">Delete all originals</button>
+            </div>
+            <div id="enrolled-grid" class="grid grid-cols-3 sm:grid-cols-5 gap-3">
+              <p id="enrolled-empty" class="text-gray-400 text-sm col-span-full py-2" data-i18n="no_photos_enrolled">No photos enrolled yet.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── GROUPS TAB ──────────────────────────────────────────────────────────── -->
+    <div id="tab-groups" class="hidden">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="font-semibold text-gray-900" data-i18n="monitored_groups">Monitored Groups</h2>
+          <p class="text-xs text-gray-400 mt-0.5" id="groups-subtitle" data-i18n="groups_subtitle">Search and toggle groups to monitor</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="saveGroupsNow()" class="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-xl hover:bg-emerald-700 transition-colors shadow-sm" data-i18n="save">Save</button>
+        </div>
+      </div>
+      <!-- Scan all groups toggle -->
+      <div class="bg-white rounded-2xl border border-gray-100 shadow-sm px-4 py-3 mb-4 flex items-start gap-3">
+        <input type="checkbox" id="scan-all-groups" class="accent-emerald-600 mt-0.5 shrink-0" onchange="saveScanAllGroups()" />
+        <div>
+          <label for="scan-all-groups" class="text-sm font-medium text-gray-800 cursor-pointer" data-i18n="scan_all_groups">Scan all groups for all kids</label>
+          <p class="text-xs text-gray-400 mt-0.5" data-i18n="scan_all_groups_hint">When enabled, every group the bot is in will be scanned — not just the monitored ones below.</p>
+        </div>
+      </div>
+
+      <div class="flex gap-2 mb-3">
+        <input id="group-search" type="text" placeholder="Search groups…" data-i18n="search_groups"
+               class="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white"
+               oninput="renderGroupList()" />
+        <button onclick="refreshGroups(true)" class="px-3 py-2 bg-gray-100 text-gray-600 text-sm rounded-xl hover:bg-gray-200 transition-colors" data-i18n-title="refresh_from_wa" title="Refresh from WhatsApp">↻</button>
+      </div>
+      <div id="group-list-wrap">
+        <p id="group-list-placeholder" class="text-sm text-gray-400 py-4" data-i18n="connect_wa_first">Connect WhatsApp in Settings to load groups.</p>
+        <div id="group-list" class="border border-gray-200 rounded-xl overflow-hidden divide-y divide-gray-100 hidden"></div>
+      </div>
+    </div>
+
+    <!-- ── ACTIONS TAB ──────────────────────────────────────────────────────────── -->
+    <div id="tab-actions" class="hidden max-w-2xl">
+
+      <!-- Forwarding -->
+      <div class="section-card p-5 mb-4">
+        <div class="flex items-center justify-between mb-1">
+          <div class="flex items-center gap-2.5">
+            <div class="w-7 h-7 rounded-lg bg-green-50 flex items-center justify-center flex-shrink-0">
+              <svg class="w-3.5 h-3.5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
+            </div>
+            <h3 class="font-semibold text-gray-900 text-sm" data-i18n="whatsapp_forward">WhatsApp Forward</h3>
+          </div>
+          <label class="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" id="forward-enabled" class="accent-emerald-600" onchange="toggleForwardSection()" />
+            <span class="text-xs text-gray-500" data-i18n="enabled">Enabled</span>
+          </label>
+        </div>
+        <p class="text-xs text-gray-400 mb-3" data-i18n="forward_description">Forward matched photos to a chat (e.g. your private chat with your spouse).</p>
+        <div id="forward-section" class="hidden space-y-3">
+          <div class="flex gap-2">
+            <div class="relative flex-1">
+              <input id="forward-input" type="text" autocomplete="off"
+                     class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white"
+                     data-i18n="select_chat" placeholder="-- Select a chat --"
+                     oninput="filterForwardChats()"
+                     onfocus="filterForwardChats()"
+                     onblur="setTimeout(()=>document.getElementById('forward-dropdown').classList.add('hidden'),150)" />
+              <div id="forward-dropdown" class="hidden absolute start-0 end-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-20 max-h-52 overflow-y-auto"></div>
+            </div>
+            <button onclick="refreshChats(true)" class="px-3 py-2 bg-gray-100 text-gray-600 text-sm rounded-xl hover:bg-gray-200 transition-colors" data-i18n-title="refresh_tooltip" title="Refresh">↻</button>
+          </div>
+          <!-- Daily Digest option -->
+          <div class="pt-2 border-t border-gray-100">
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-xs font-medium text-gray-700" data-i18n="daily_digest">Daily Digest</p>
+                <p class="text-xs text-gray-400 mt-0.5" data-i18n="digest_description">Queue matches and send once a day instead of immediately.</p>
+              </div>
+              <input type="checkbox" id="digest-mode" class="accent-orange-500" onchange="toggleDigestTime()" />
+            </div>
+            <div id="digest-time-row" class="hidden mt-2 flex items-center gap-2">
+              <label class="text-xs text-gray-600" data-i18n="send_at">Send at</label>
+              <input type="time" id="digest-time" value="20:00" class="border border-gray-200 rounded-xl px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Save to folder -->
+      <div class="section-card p-5 mb-4">
+        <div class="flex items-center justify-between mb-1">
+          <div class="flex items-center gap-2.5">
+            <div class="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+              <svg class="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
+            </div>
+            <h3 class="font-semibold text-gray-900 text-sm" data-i18n="save_to_folder">Save to Folder</h3>
+          </div>
+          <label class="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" id="save-enabled" class="accent-emerald-600" onchange="toggleSaveSection()" />
+            <span class="text-xs text-gray-500" data-i18n="enabled">Enabled</span>
+          </label>
+        </div>
+        <p class="text-xs text-gray-400 mb-3" data-i18n="save_folder_description">Save every matched photo to a local folder.</p>
+        <div id="save-section" class="hidden space-y-3">
+          <div class="flex gap-2">
+            <input type="text" id="save-path" placeholder="~/matched-photos"
+                   class="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+            <button onclick="browseSaveFolder()" class="px-3 py-2 bg-gray-100 text-gray-600 text-sm rounded-xl hover:bg-gray-200 transition-colors" data-i18n="browse">Browse…</button>
+          </div>
+          <div>
+            <p class="text-xs font-medium text-gray-600 mb-1.5" data-i18n="organise_by">Organise by</p>
+            <div class="flex gap-4">
+              <label class="flex items-center gap-2 cursor-pointer select-none"><input type="radio" name="save-organize" value="group" checked class="accent-emerald-600" onchange="updateSaveExample()" /><span class="text-sm text-gray-700" data-i18n="by_group">Group</span></label>
+              <label class="flex items-center gap-2 cursor-pointer select-none"><input type="radio" name="save-organize" value="kid" class="accent-emerald-600" onchange="updateSaveExample()" /><span class="text-sm text-gray-700" data-i18n="by_kid">Kid</span></label>
+            </div>
+            <p class="text-xs text-gray-400 mt-1 italic" id="save-example">save_folder / Group Name / 20260312_143000.jpg</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Google Photos -->
+      <div class="section-card p-5 mb-4">
+        <div class="flex items-center justify-between mb-1">
+          <div class="flex items-center gap-2.5">
+            <div class="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+              <svg class="w-3.5 h-3.5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            </div>
+            <h3 class="font-semibold text-gray-900 text-sm" data-i18n="google_photos">Google Photos</h3>
+          </div>
+          <label class="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" id="gp-enabled" class="accent-teal-600" onchange="toggleGPAlbumSettings()" />
+            <span class="text-xs text-gray-500" data-i18n="enabled">Enabled</span>
+          </label>
+        </div>
+        <p class="text-xs text-gray-400 mb-2" data-i18n="gp_description">Upload every matched photo to Google Photos.</p>
+        <p id="gp-hint" class="hidden text-xs text-amber-600 mb-2">⚠ Google Photos not connected — <button onclick="showTab('settings')" class="underline font-medium">connect it in Settings → Integrations</button></p>
+        <div id="gp-album-settings" class="hidden space-y-2 mt-3">
+          <p class="text-xs font-medium text-gray-600" data-i18n="organise_albums">Organise albums by</p>
+          <div class="flex flex-wrap gap-4">
+            <label class="flex items-center gap-2 cursor-pointer select-none"><input type="radio" name="gp-organize" value="none" checked class="accent-teal-600" onchange="updateGPAlbumNameRow()" /><span class="text-sm text-gray-700" data-i18n="no_album">No album</span></label>
+            <label class="flex items-center gap-2 cursor-pointer select-none"><input type="radio" name="gp-organize" value="group" class="accent-teal-600" onchange="updateGPAlbumNameRow()" /><span class="text-sm text-gray-700" data-i18n="by_group">Group</span></label>
+            <label class="flex items-center gap-2 cursor-pointer select-none"><input type="radio" name="gp-organize" value="kid" class="accent-teal-600" onchange="updateGPAlbumNameRow()" /><span class="text-sm text-gray-700" data-i18n="by_kid">Kid</span></label>
+            <label class="flex items-center gap-2 cursor-pointer select-none"><input type="radio" name="gp-organize" value="single" class="accent-teal-600" onchange="updateGPAlbumNameRow()" /><span class="text-sm text-gray-700" data-i18n="single_album">Single album</span></label>
+          </div>
+          <div id="gp-album-name-row" class="hidden">
+            <input type="text" id="gp-album-name" placeholder="Album name" data-i18n="album_name"
+                   class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-600" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Save button -->
+      <button onclick="saveSettings()" class="w-full py-3 bg-emerald-600 text-white font-semibold rounded-xl hover:bg-emerald-700 transition-colors shadow-sm" data-i18n="save_settings">
+        Save Settings
+      </button>
+
+      <!-- Test Recognition (collapsible) -->
+      <div class="section-card mt-6">
+        <button class="accordion-header" onclick="toggleAccordion('test')">
+          <div class="flex items-center gap-2">
+            <div>
+              <p class="font-semibold text-gray-900 text-sm" data-i18n="test_recognition">Test Recognition</p>
+              <p class="text-xs text-gray-400 mt-0.5" data-i18n="test_subtitle">Try a photo without needing WhatsApp</p>
+            </div>
+            <span id="test-running-dot" class="hidden w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse self-start mt-0.5 flex-shrink-0"></span>
+          </div>
+          <svg id="test-chevron" class="w-4 h-4 text-gray-400 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+        <div id="test-panel" class="hidden px-5 pb-5 border-t border-gray-100 pt-4">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div class="space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1" data-i18n="search_for_kid">Search for kid</label>
+                <select id="test-kid-select" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
+                  <option value="" data-i18n="all_kids">— all kids —</option>
+                </select>
+              </div>
+              <div id="test-drop" class="relative border-2 border-dashed border-gray-200 rounded-2xl h-32 flex flex-col items-center justify-center cursor-pointer hover:border-emerald-400 hover:bg-emerald-50 transition-colors bg-cover bg-center">
+                <span id="test-drop-icon" class="text-2xl mb-1">🔍</span>
+                <p id="test-drop-label" class="text-xs text-gray-400 text-center px-2" data-i18n="drop_photos_videos">Drop photos or videos, or click to select</p>
+                <input type="file" id="test-file-input" accept="image/*,video/*" multiple class="hidden" />
+              </div>
+              <div id="test-file-list" class="hidden space-y-1.5 max-h-28 overflow-y-auto pr-1"></div>
+              <div class="flex items-center gap-3">
+                <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+                  <input type="checkbox" id="test-forward" class="accent-emerald-600" />
+                  <span data-i18n="perform_actions_if_matched">Perform actions if matched</span>
+                </label>
+                <button onclick="runTest()" id="test-run-btn" class="ms-auto px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition-colors shadow-sm" data-i18n="run_test">Run</button>
+              </div>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-3" data-i18n="result">Result</label>
+              <div id="test-progress" class="hidden mb-4">
+                <div class="flex justify-between text-xs text-gray-500 mb-1.5">
+                  <span id="test-progress-label"></span>
+                  <span id="test-progress-pct">0%</span>
+                </div>
+                <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                  <div id="test-progress-bar" class="h-full bg-emerald-500 rounded-full transition-[width] duration-500 ease-out" style="width:0%"></div>
+                </div>
+              </div>
+              <div id="test-placeholder" class="text-center py-8 text-gray-300 text-sm" data-i18n="run_test_to_see">Run a test to see results here</div>
+              <div id="test-results-list" class="hidden space-y-3 max-h-[26rem] overflow-y-auto pr-1"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── SETTINGS TAB ──────────────────────────────────────────────────────────── -->
+    <div id="tab-settings" class="hidden max-w-2xl">
+
+      <!-- WhatsApp Connection -->
+      <div class="section-card p-5 mb-4">
+        <div class="flex items-center gap-2.5 mb-3">
+          <div class="w-7 h-7 rounded-lg bg-green-50 flex items-center justify-center flex-shrink-0">
+            <svg class="w-3.5 h-3.5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </svg>
+          </div>
+          <h3 class="font-semibold text-gray-900 text-sm" data-i18n="whatsapp_connection">WhatsApp Connection</h3>
+        </div>
+        <!-- Connected state -->
+        <div id="wa-connected" class="hidden">
+          <div class="flex items-center gap-3 p-3 bg-green-50 rounded-xl border border-green-100">
+            <span class="w-2.5 h-2.5 rounded-full bg-green-500 flex-shrink-0"></span>
+            <div class="flex-1">
+              <p class="font-medium text-green-800 text-sm" id="wa-name" data-i18n="wa_connected">Connected</p>
+              <p class="text-xs text-green-600" id="wa-number"></p>
+            </div>
+            <button onclick="waDisconnect()" id="wa-disconnect-btn"
+                    class="px-3 py-1.5 text-xs font-medium text-orange-600 bg-orange-50 hover:bg-orange-100 rounded-lg transition-colors" data-i18n="disconnect">
+              Disconnect
+            </button>
+            <button onclick="waLogout()" id="wa-logout-btn"
+                    class="px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors" data-i18n="sign_out">
+              Sign out
+            </button>
+          </div>
+        </div>
+        <!-- Disconnected / QR state -->
+        <div id="wa-disconnected">
+          <div class="flex items-center gap-3 p-3 bg-amber-50 rounded-xl border border-amber-100 mb-3">
+            <span class="w-2.5 h-2.5 rounded-full bg-amber-400 flex-shrink-0"></span>
+            <p class="text-amber-800 text-xs flex-1" id="wa-disconnected-msg" data-i18n="wa_not_connected">Not connected.</p>
+            <button onclick="waConnect()" id="wa-connect-btn"
+                    class="px-3 py-1.5 text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors" data-i18n="connect">
+              Connect
+            </button>
+          </div>
+          <div id="qr-section" class="text-center hidden">
+            <div id="qr-loading" class="py-6 text-gray-400 text-sm" data-i18n="waiting_qr">Waiting for QR code…</div>
+            <img id="qr-image" class="hidden mx-auto w-48 h-48 rounded-xl border border-gray-200 shadow-sm" />
+            <p class="text-xs text-gray-400 mt-2" data-i18n="scan_qr_instruction">Open WhatsApp on your phone → Linked Devices → Link a Device</p>
+          </div>
+        </div>
+        <!-- Schedule -->
+        <div class="mt-4 pt-4 border-t border-gray-100">
+          <div class="flex items-center justify-between mb-2">
+            <div>
+              <p class="text-xs font-medium text-gray-800" data-i18n="active_hours">Active hours</p>
+              <p class="text-xs text-gray-400 mt-0.5" data-i18n="active_hours_subtitle">Auto-disconnect outside these hours so your phone gets notifications</p>
+            </div>
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input type="checkbox" id="schedule-enabled" class="sr-only peer" onchange="saveSchedule()">
+              <div class="w-10 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:bg-teal-600 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5"></div>
+            </label>
+          </div>
+          <div class="flex items-center gap-3 flex-wrap">
+            <div class="flex items-center gap-2">
+              <label class="text-xs text-gray-500" data-i18n="from">From</label>
+              <input type="time" id="schedule-from" value="08:00" onchange="saveSchedule()"
+                     class="border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500" />
+            </div>
+            <div class="flex items-center gap-2">
+              <label class="text-xs text-gray-500" data-i18n="to">To</label>
+              <input type="time" id="schedule-to" value="22:00" onchange="saveSchedule()"
+                     class="border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500" />
+            </div>
+            <span class="text-xs text-gray-400" data-i18n="bot_disconnects">Bot disconnects outside this window</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Match Confidence -->
+      <div class="section-card p-5 mb-4">
+        <div class="flex items-center gap-2.5 mb-3">
+          <div class="w-7 h-7 rounded-lg bg-amber-50 flex items-center justify-center flex-shrink-0">
+            <svg class="w-3.5 h-3.5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+          </div>
+          <h3 class="font-semibold text-gray-900 text-sm" data-i18n="match_confidence">Match Confidence</h3>
+        </div>
+        <p class="text-xs text-gray-400 mb-3" data-i18n="confidence_hint">Higher = fewer false positives. Lower = catches more but may include other kids.</p>
+        <div class="flex items-center gap-4">
+          <input type="range" id="threshold-slider" min="40" max="90" value="60" step="5" class="flex-1 accent-emerald-500"
+                 oninput="document.getElementById('threshold-value').textContent = this.value + '%'" />
+          <span id="threshold-value" class="text-lg font-bold text-emerald-600 w-14 text-end">60%</span>
+        </div>
+        <div class="flex justify-between text-xs text-gray-400 mt-1"><span data-i18n="more_matches">More matches</span><span data-i18n="fewer_false">Fewer false positives</span></div>
+      </div>
+
+      <!-- Activity Thumbnails -->
+      <div class="section-card p-5 mb-4">
+        <div class="flex items-center justify-between mb-1">
+          <div class="flex items-center gap-2.5">
+            <div class="w-7 h-7 rounded-lg bg-teal-50 flex items-center justify-center flex-shrink-0">
+              <svg class="w-3.5 h-3.5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+            </div>
+            <h3 class="font-semibold text-gray-900 text-sm" data-i18n="activity_thumbnails">Activity Thumbnails</h3>
+          </div>
+          <label class="flex items-center gap-2 cursor-pointer select-none">
+            <input type="checkbox" id="thumbnails-enabled" class="accent-teal-600" checked onchange="document.getElementById('thumbnail-options').classList.toggle('hidden', !this.checked)" />
+            <span class="text-xs text-gray-500" data-i18n="enabled">Enabled</span>
+          </label>
+        </div>
+        <p class="text-xs text-gray-400 mb-3" data-i18n="thumbnails_description">Save small thumbnails of matched photos in the activity log. Automatically deleted after a set time.</p>
+        <div id="thumbnail-options" class="flex items-center gap-3">
+          <label class="text-xs text-gray-600 whitespace-nowrap" data-i18n="keep_for">Keep for</label>
+          <input type="number" id="thumbnail-retention" min="1" max="720" value="168"
+                 class="w-20 border border-gray-200 rounded-xl px-3 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+          <span class="text-xs text-gray-400" data-i18n="hours">hours</span>
+        </div>
+      </div>
+
+      <!-- Integrations (Google Photos credentials) -->
+      <div class="section-card p-5 mb-4">
+        <div class="flex items-center gap-2.5 mb-1">
+          <div class="w-7 h-7 rounded-lg bg-teal-50 flex items-center justify-center flex-shrink-0">
+            <svg class="w-3.5 h-3.5 text-teal-700" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/>
+            </svg>
+          </div>
+          <h3 class="font-semibold text-gray-900 text-sm" data-i18n="integrations">Integrations</h3>
+        </div>
+        <p class="text-xs text-gray-400 mb-3 ms-9" data-i18n="integrations_subtitle">Connect external services. Once configured here, each feature can be enabled per-app.</p>
+        <div class="border border-gray-100 rounded-xl p-4">
+          <div class="flex items-center gap-2 mb-3">
+            <div class="w-6 h-6 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+              <svg class="w-3.5 h-3.5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+              </svg>
+            </div>
+            <span class="text-sm font-medium text-gray-800">Google Photos</span>
+            <div id="gp-not-connected" class="ms-auto flex items-center gap-1.5 text-xs text-gray-400">
+              <span class="w-1.5 h-1.5 rounded-full bg-gray-300 inline-block"></span><span data-i18n="gp_not_connected_badge">Not connected</span>
+            </div>
+            <div id="gp-connected-badge" class="hidden ms-auto flex items-center gap-1.5 text-xs text-green-600">
+              <span class="w-1.5 h-1.5 rounded-full bg-green-500 inline-block"></span><span data-i18n="gp_connected_badge">Connected</span>
+            </div>
+          </div>
+          <div class="p-3 bg-gray-50 rounded-xl border border-gray-100 space-y-2.5 mb-3">
+            <details class="text-xs text-gray-500">
+              <summary class="text-blue-600 cursor-pointer font-medium" data-i18n="how_to_credentials">How to get credentials ▸</summary>
+              <ol class="mt-2 space-y-1.5 list-decimal ps-4">
+                <li data-i18n-html="gp_step_1">Go to <strong>console.cloud.google.com</strong>, create a project (or select one).</li>
+                <li data-i18n-html="gp_step_2">Go to <strong>APIs &amp; Services → Library</strong>, search for <strong>Photos Library API</strong> and enable it.</li>
+                <li data-i18n-html="gp_step_3">Go to <strong>APIs &amp; Services → OAuth consent screen</strong>.<br>Under <strong>Audience</strong>, set User Type to <strong>External</strong> and publishing status to <strong>In production</strong>.</li>
+                <li data-i18n-html="gp_step_4">Go to <strong>APIs &amp; Services → Credentials → Create Credentials → OAuth Client ID</strong>.<br>Application type: <strong>Web application</strong>.</li>
+                <li data-i18n-html="gp_step_5">Under <strong>Authorized redirect URIs</strong>, add exactly:<br>
+                  <code class="bg-white border border-gray-200 px-1 rounded break-all select-all">http://localhost:8000/api/settings/google-photos/callback</code></li>
+                <li data-i18n-html="gp_step_6">Copy the <strong>Client ID</strong> and <strong>Client Secret</strong> into the fields below and click <strong>Save Settings</strong>, then click <strong>Connect with Google</strong>.</li>
+              </ol>
+            </details>
+            <input type="text" id="gp-client-id" placeholder="Client ID" data-i18n="client_id"
+                   class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <input type="password" id="gp-client-secret" placeholder="Client Secret" data-i18n="client_secret"
+                   class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+          <div class="flex gap-2">
+            <button id="gp-connect-btn" onclick="connectGooglePhotos()"
+                    class="px-3 py-1.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white text-xs font-medium rounded-xl hover:from-blue-700 hover:to-blue-800 shadow-sm" data-i18n="connect_google">
+              Connect with Google
+            </button>
+            <button id="gp-disconnect-btn" onclick="disconnectGooglePhotos()"
+                    class="hidden px-3 py-1.5 bg-gray-200 text-gray-600 text-xs font-medium rounded-xl hover:bg-gray-300 transition-colors" data-i18n="disconnect">
+              Disconnect
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Security -->
+      <div class="section-card p-5 mb-4">
+        <div class="flex items-center gap-2.5 mb-1">
+          <div class="w-7 h-7 rounded-lg bg-red-50 flex items-center justify-center flex-shrink-0">
+            <svg class="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+            </svg>
+          </div>
+          <h3 class="font-semibold text-gray-900 text-sm" data-i18n="security">Security</h3>
+        </div>
+        <p class="text-xs text-gray-400 mb-3 ms-9" data-i18n="security_subtitle">Lock the UI with a PIN to prevent unauthorised access on your network.</p>
+        <div class="border border-gray-100 rounded-xl p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-medium text-gray-800" data-i18n="pin_lock">PIN lock</span>
+            <label class="flex items-center gap-2 cursor-pointer select-none">
+              <input type="checkbox" id="pin-enabled" class="accent-red-500" onchange="togglePinField()" />
+              <span class="text-sm text-gray-500" data-i18n="enabled">Enabled</span>
+            </label>
+          </div>
+          <div id="pin-field-row" class="hidden">
+            <label class="block text-xs font-medium text-gray-600 mb-1.5" data-i18n="pin_digits">PIN (4–6 digits)</label>
+            <input type="password" id="app-pin" maxlength="6" pattern="\d{4,6}" placeholder="••••"
+                   class="w-32 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+                   inputmode="numeric" />
+            <p class="text-xs text-gray-400 mt-1" data-i18n="pin_keep_hint">Leave blank to keep current PIN.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Language -->
+      <div class="section-card p-5 mb-4">
+        <div class="flex items-center gap-2.5 mb-3">
+          <div class="w-7 h-7 rounded-lg bg-violet-50 flex items-center justify-center flex-shrink-0">
+            <svg class="w-3.5 h-3.5 text-violet-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"/>
+            </svg>
+          </div>
+          <h3 class="font-semibold text-gray-900 text-sm" data-i18n="language">Language</h3>
+        </div>
+        <div class="flex gap-4">
+          <label class="flex items-center gap-2 cursor-pointer select-none">
+            <input type="radio" name="app-lang" value="en" class="accent-violet-500" onchange="onLangChange('en')" />
+            <span class="text-sm text-gray-700">English</span>
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer select-none">
+            <input type="radio" name="app-lang" value="he" class="accent-violet-500" onchange="onLangChange('he')" />
+            <span class="text-sm text-gray-700">עברית</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Save button -->
+      <button onclick="saveAppSettings()" class="w-full py-3 bg-emerald-600 text-white font-semibold rounded-xl hover:bg-emerald-700 transition-colors shadow-sm" data-i18n="save_settings">
+        Save Settings
+      </button>
+
+      <!-- Backup & Restore -->
+      <div class="section-card p-5 mt-6">
+        <div class="flex items-center gap-2.5 mb-1">
+          <div class="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+            <svg class="w-3.5 h-3.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10"/>
+            </svg>
+          </div>
+          <h3 class="font-semibold text-gray-900 text-sm" data-i18n="backup_restore">Backup & Restore</h3>
+        </div>
+        <p class="text-xs text-gray-400 mb-4" data-i18n="backup_description">Backup includes all settings and enrolled kids (photos + face data). WhatsApp session is excluded.</p>
+        <div class="flex gap-3">
+          <button onclick="downloadBackup()"
+                  class="flex-1 flex items-center justify-center gap-2 py-2.5 bg-gray-800 text-white text-sm font-medium rounded-xl hover:bg-gray-700 transition-colors">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+            <span data-i18n="export_backup">Export backup</span>
+          </button>
+          <label class="flex-1 flex items-center justify-center gap-2 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm font-medium rounded-xl hover:bg-gray-50 transition-colors cursor-pointer">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+            <span data-i18n="restore_backup">Restore backup</span>
+            <input type="file" accept=".zip" class="hidden" onchange="uploadBackup(this)" />
+          </label>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+    // ── Utilities ───────────────────────────────────────────────────────────────
+    function showToast(msg, type = 'success') {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.className = `fixed top-6 end-6 px-4 py-3 rounded-xl text-sm font-medium shadow-lg z-50 ${type === 'success' ? 'bg-green-600 text-white' : 'bg-red-500 text-white'}`;
+      el.classList.remove('hidden');
+      setTimeout(() => el.classList.add('hidden'), 3000);
+    }
+
+    function relativeTime(isoStr) {
+      const diff = Date.now() - new Date(isoStr).getTime();
+      const m = Math.floor(diff / 60000), h = Math.floor(diff / 3600000), d = Math.floor(diff / 86400000);
+      if (m < 1) return 'just now';
+      if (m < 60) return `${m}m ago`;
+      if (h < 24) return `${h}h ago`;
+      if (d < 7) return `${d}d ago`;
+      return new Date(isoStr).toLocaleDateString();
+    }
+
+    // ── Nav status ──────────────────────────────────────────────────────────────
+    async function loadNavStatus() {
+      try {
+        const r = await fetch('/api/settings/whatsapp/status');
+        const d = await r.json();
+        const dot = document.getElementById('nav-dot');
+        const name = document.getElementById('nav-name');
+        if (d.connected) {
+          dot.className = 'w-1.5 h-1.5 rounded-full bg-green-500 flex-shrink-0';
+          name.textContent = d.phone?.name || t('wa_connected');
+          document.getElementById('nav-status').className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-50 text-xs font-medium text-green-700';
+        } else {
+          dot.className = 'w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0';
+          name.textContent = t('nav_disconnected');
+          document.getElementById('nav-status').className = 'flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-red-50 text-xs font-medium text-red-600';
+        }
+      } catch (_) {}
+    }
+
+    // ── Lightbox ─────────────────────────────────────────────────────────────────
+    function openLightbox(src) {
+      document.getElementById('lightbox-img').src = src;
+      document.getElementById('lightbox').classList.remove('hidden');
+    }
+    function closeLightbox() {
+      document.getElementById('lightbox').classList.add('hidden');
+      document.getElementById('lightbox-img').src = '';
+    }
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
+
+    // ── Tab switching ────────────────────────────────────────────────────────────
+    const TABS = ['activity', 'kids', 'groups', 'actions', 'settings'];
+    function showTab(tab) {
+      TABS.forEach(t => {
+        document.getElementById(`tab-${t}`).classList.toggle('hidden', t !== tab);
+        document.getElementById(`tab-btn-${t}`).classList.toggle('active', t === tab);
+      });
+      if (tab === 'activity') { loadStats(); loadActivity(); checkDigest(); }
+      if (tab === 'kids') loadKids();
+      if (tab === 'groups') { loadKids(); refreshGroups(); }
+      if (tab === 'actions') loadSettings();
+      if (tab === 'settings') loadAppSettings();
+    }
+
+    function toggleAccordion(id) {
+      const panel = document.getElementById(`${id}-panel`);
+      const chevron = document.getElementById(`${id}-chevron`);
+      const open = panel.classList.contains('hidden');
+      panel.classList.toggle('hidden', !open);
+      chevron.style.transform = open ? 'rotate(180deg)' : '';
+      if (id === 'test' && open) loadTestKids();
+    }
+
+    async function loadStatus() {
+      // no-op: subtitle element removed; callers kept for group-save refresh
+    }
+
+    // ── Model status ──────────────────────────────────────────────────────────────
+    let _modelReady = false;
+
+    async function checkModelStatus() {
+      try {
+        const r = await fetch('/api/model-status');
+        if (!r.ok) { setTimeout(checkModelStatus, 3000); return; }
+        const d = await r.json();
+        const banner = document.getElementById('model-banner');
+        const bannerText = document.getElementById('model-banner-text');
+        if (d.status === 'ready') {
+          _modelReady = true;
+          banner.classList.add('hidden');
+          const dz = document.getElementById('drop-zone');
+          if (dz) dz.classList.remove('opacity-50', 'pointer-events-none');
+        } else if (d.status === 'error') {
+          _modelReady = false;
+          banner.classList.remove('hidden', 'bg-blue-50', 'border-blue-200', 'text-blue-800');
+          banner.classList.add('bg-red-50', 'border-red-200', 'text-red-800');
+          banner.querySelector('svg').classList.add('hidden');
+          bannerText.textContent = t('model_error') + (d.error ? ` — ${d.error}` : '');
+        } else {
+          _modelReady = false;
+          banner.classList.remove('hidden');
+          bannerText.textContent = t('model_loading');
+          const dz = document.getElementById('drop-zone');
+          if (dz) dz.classList.add('opacity-50', 'pointer-events-none');
+          setTimeout(checkModelStatus, 3000);
+        }
+      } catch (e) {
+        setTimeout(checkModelStatus, 3000);
+      }
+    }
+
+    // ── Activity tab ─────────────────────────────────────────────────────────────
+    let activityView = localStorage.getItem('activityView') || 'table';
+    let _activityRows = [];
+
+    function setActivityView(v) {
+      activityView = v;
+      localStorage.setItem('activityView', v);
+      const isGrid = v === 'grid';
+      document.getElementById('activity-table-wrap').classList.toggle('hidden', isGrid);
+      document.getElementById('activity-grid-wrap').classList.toggle('hidden', !isGrid);
+      const tBtn = document.getElementById('view-btn-table');
+      const gBtn = document.getElementById('view-btn-grid');
+      tBtn.classList.toggle('bg-gray-100', !isGrid);
+      tBtn.classList.toggle('text-emerald-600', !isGrid);
+      tBtn.classList.toggle('text-gray-400', isGrid);
+      gBtn.classList.toggle('bg-gray-100', isGrid);
+      gBtn.classList.toggle('text-emerald-600', isGrid);
+      gBtn.classList.toggle('text-gray-400', !isGrid);
+      if (_activityRows.length) renderActivity();
+    }
+
+    function _buildBadge(row, compact) {
+      const cls = compact ? 'px-1.5 py-0.5 text-xs font-medium rounded-full' : 'px-2 py-0.5 text-xs font-medium rounded-full';
+      const kidSpan = (!compact && row.kid_names) ? `<span class="ml-1 text-xs text-gray-500">${row.kid_names}</span>` : '';
+      return row.manually_matched
+        ? `<span class="${cls} bg-violet-100 text-violet-700">${t('badge_manual')}</span>${kidSpan}`
+        : row.matched
+        ? `<span class="${cls} bg-emerald-100 text-emerald-700">${t('badge_match')}</span>${kidSpan}`
+        : `<span class="${cls} bg-gray-100 text-gray-400">${t('badge_no_match')}</span>`;
+    }
+
+    function buildTableRow(row) {
+      const relTime = relativeTime(row.timestamp);
+      const badge = _buildBadge(row, false);
+      const conf = row.confidence > 0 ? `${(row.confidence * 100).toFixed(0)}%` : '-';
+      const thumb = row.thumbnail_filename
+        ? `<img src="/api/activity/thumbnail/${encodeURIComponent(row.thumbnail_filename)}"
+                class="w-10 h-10 rounded-lg object-cover cursor-pointer ring-1 ring-gray-100 hover:ring-emerald-400 transition-all"
+                onclick="openLightbox('/api/activity/thumbnail/${encodeURIComponent(row.thumbnail_filename)}')"
+                onerror="this.outerHTML='<div class=\\'w-10 h-10 rounded-lg bg-gray-100\\'></div>'" loading="lazy" />`
+        : '<div class="w-10 h-10 rounded-lg bg-gray-50"></div>';
+      const runBtn = row.has_original
+        ? `<button onclick="rerunActions(${row.id}, this)" title="${row.matched ? 'Re-forward, re-upload to Google Photos and save to folder' : 'Forward, upload to Google Photos and save to folder'}"
+              class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-gray-400 hover:bg-emerald-50 hover:text-emerald-600 transition-colors whitespace-nowrap">
+              <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/></svg>
+              ${row.matched ? t('resend') : t('send')}
+            </button>`
+        : '';
+      return `<tr class="border-t border-gray-50 hover:bg-gray-50/70 transition-colors">
+        <td class="px-3 py-2">${thumb}</td>
+        <td class="px-5 py-3 text-gray-400 whitespace-nowrap text-xs" title="${new Date(row.timestamp).toLocaleString()}">${relTime}</td>
+        <td class="px-5 py-3 text-gray-700 font-medium">${row.sender}</td>
+        <td class="px-5 py-3 text-gray-400 text-xs">${row.group_name}</td>
+        <td class="px-5 py-3 text-gray-600">${row.faces_detected}</td>
+        <td class="px-5 py-3" id="badge-cell-${row.id}">${badge}</td>
+        <td class="px-5 py-3 text-gray-600">${conf}</td>
+        <td class="px-3 py-2">${runBtn}</td>
+      </tr>`;
+    }
+
+    function buildGridCard(row) {
+      const relTime = relativeTime(row.timestamp);
+      const conf = row.confidence > 0 ? `${(row.confidence * 100).toFixed(0)}%` : '-';
+      const badge = _buildBadge(row, true);
+      const imgSrc = row.thumbnail_filename ? `/api/activity/thumbnail/${encodeURIComponent(row.thumbnail_filename)}` : null;
+      const thumbEl = imgSrc
+        ? `<img src="${imgSrc}" class="w-full aspect-square object-cover cursor-pointer" onclick="openLightbox('${imgSrc}')" onerror="this.closest('.act-card-img').innerHTML='<div class=\\'w-full aspect-square bg-gray-50\\'></div>'" loading="lazy" />`
+        : `<div class="w-full aspect-square bg-gray-50 flex items-center justify-center text-gray-200"><svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></div>`;
+      const runBtn = row.has_original
+        ? `<button onclick="rerunActions(${row.id}, this)" class="w-full mt-2 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:bg-emerald-50 hover:text-emerald-600 transition-colors flex items-center justify-center gap-1">
+              <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/></svg>
+              ${row.matched ? t('resend') : t('send')}
+            </button>`
+        : '';
+      return `<div class="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100">
+        <div class="act-card-img relative">${thumbEl}<div class="absolute top-2 right-2" id="badge-cell-${row.id}">${badge}</div></div>
+        <div class="px-3 py-2">
+          <p class="text-xs font-medium text-gray-700 truncate" title="${row.group_name}">${row.group_name}</p>
+          <div class="flex items-center justify-between mt-0.5">
+            <span class="text-xs text-gray-400" title="${new Date(row.timestamp).toLocaleString()}">${relTime}</span>
+            <span class="text-xs text-gray-400">${conf}</span>
+          </div>
+          ${runBtn}
+        </div>
+      </div>`;
+    }
+
+    function renderActivity() {
+      const rows = _activityRows;
+      if (activityView === 'grid') {
+        document.getElementById('activity-grid').innerHTML = rows.length
+          ? rows.map(buildGridCard).join('')
+          : `<p class="col-span-full py-10 text-center text-gray-300">${t('no_activity')}</p>`;
+      } else {
+        document.getElementById('activity-body').innerHTML = rows.length
+          ? rows.map(buildTableRow).join('')
+          : `<tr><td colspan="9" class="px-5 py-10 text-center text-gray-300">${t('no_activity')}</td></tr>`;
+      }
+    }
+
+    async function loadStats() {
+      try {
+        const r = await fetch('/api/dashboard/stats');
+        const d = await r.json();
+        document.getElementById('act-matched').textContent = d.today_matched ?? 0;
+        document.getElementById('act-scanned').textContent = (d.today_matched ?? 0) + (d.today_unmatched ?? 0);
+        const total = (d.today_matched ?? 0) + (d.today_unmatched ?? 0);
+        document.getElementById('act-rate').textContent = total > 0 ? Math.round(d.today_matched / total * 100) + '%' : '—';
+      } catch (_) {}
+    }
+
+    async function loadActivity() {
+      try {
+        const matched = document.getElementById('filter-matched')?.value;
+        const group = document.getElementById('filter-group')?.value || '';
+        const kid = document.getElementById('filter-kid')?.value || '';
+        let url = '/api/dashboard/activity?limit=1000&days=7';
+        if (matched) url += `&matched=${matched}`;
+        if (group) url += `&group_name=${encodeURIComponent(group)}`;
+        if (kid) url += `&kid_name=${encodeURIComponent(kid)}`;
+        const r = await fetch(url);
+        const d = await r.json();
+        _activityRows = d.activity || [];
+        renderActivity();
+      } catch (_) {}
+    }
+
+    let filterTimer;
+    function debouncedFilter() { clearTimeout(filterTimer); filterTimer = setTimeout(loadActivity, 400); }
+    function clearFilters() {
+      document.getElementById('filter-matched').value = '';
+      document.getElementById('filter-group').value = '';
+      document.getElementById('filter-kid').value = '';
+      loadActivity();
+    }
+    async function clearActivity() {
+      if (!confirm(t('clear_activity_confirm'))) return;
+      await fetch('/api/dashboard/activity', { method: 'DELETE' });
+      loadActivity(); loadStats();
+    }
+
+    async function rerunActions(id, btn) {
+      const originalHTML = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>';
+      try {
+        const r = await fetch(`/api/myne/rerun/${id}`, { method: 'POST' });
+        const d = await r.json();
+        if (!r.ok) { showToast(d.detail || 'Failed', 'error'); return; }
+        const parts = [];
+        if (d.forwarded) parts.push('forwarded');
+        if (d.saved_to_gp) parts.push('Google Photos');
+        if (d.saved_to_folder) parts.push('saved to folder');
+        showToast(parts.length ? `Done: ${parts.join(', ')}` : 'No actions configured', parts.length ? 'success' : 'info');
+        const badgeCell = document.getElementById(`badge-cell-${id}`);
+        if (badgeCell && badgeCell.querySelector('.bg-gray-100')) {
+          badgeCell.innerHTML = `<span class="px-2 py-0.5 bg-violet-100 text-violet-700 rounded-full text-xs font-medium">${t('badge_manual')}</span>`;
+          btn.innerHTML = originalHTML.replace(t('send'), t('resend'));
+        }
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHTML;
+      }
+    }
+
+    // ── Digest ────────────────────────────────────────────────────────────────────
+    async function checkDigest() {
+      try {
+        const [sR, qR] = await Promise.all([fetch('/api/settings'), fetch('/api/digest/queue')]);
+        const s = await sR.json(), q = await qR.json();
+        const banner = document.getElementById('digest-banner');
+        if (s.digest_mode === 'true') {
+          banner.classList.remove('hidden');
+          document.getElementById('digest-count').textContent = q.count || 0;
+        } else {
+          banner.classList.add('hidden');
+        }
+      } catch (_) {}
+    }
+    async function sendDigestNow() {
+      const r = await fetch('/api/digest/send-now', { method: 'POST' });
+      const d = await r.json();
+      document.getElementById('digest-count').textContent = '0';
+      showToast(`Digest sent (${d.sent} item${d.sent !== 1 ? 's' : ''})`);
+    }
+
+    // ── Test recognition ──────────────────────────────────────────────────────────
+    let testFiles = [];
+    let testKids = [];
+
+    async function loadTestKids() {
+      try {
+        const r = await fetch('/api/enrollment/kids');
+        const d = await r.json();
+        testKids = d.kids || [];
+        const sel = document.getElementById('test-kid-select');
+        sel.innerHTML = `<option value="">${t('all_kids')}</option>`;
+        testKids.forEach(k => {
+          const opt = document.createElement('option');
+          opt.value = k.id; opt.textContent = k.name;
+          sel.appendChild(opt);
+        });
+      } catch (_) {}
+    }
+
+    const testDrop = document.getElementById('test-drop');
+    const testInput = document.getElementById('test-file-input');
+    testDrop.addEventListener('click', () => testInput.click());
+    testDrop.addEventListener('dragover', e => { e.preventDefault(); testDrop.classList.add('border-emerald-400'); });
+    testDrop.addEventListener('dragleave', () => testDrop.classList.remove('border-emerald-400'));
+    testDrop.addEventListener('drop', e => { e.preventDefault(); testDrop.classList.remove('border-emerald-400'); addTestFiles(Array.from(e.dataTransfer.files)); });
+    testInput.addEventListener('change', () => { addTestFiles(Array.from(testInput.files)); testInput.value = ''; });
+
+    function addTestFiles(newFiles) {
+      newFiles.forEach(f => testFiles.push(f));
+      updateTestDropZone();
+      updateTestFileList();
+    }
+
+    function removeTestFile(idx) {
+      testFiles.splice(idx, 1);
+      updateTestDropZone();
+      updateTestFileList();
+    }
+
+    function updateTestDropZone() {
+      const icon = document.getElementById('test-drop-icon');
+      const label = document.getElementById('test-drop-label');
+      if (testFiles.length === 0) {
+        icon.textContent = '🔍'; testDrop.style.backgroundImage = '';
+        label.className = 'text-xs text-gray-400 text-center px-2';
+        label.textContent = t('drop_photos_videos');
+      } else if (testFiles.length === 1 && testFiles[0].type.startsWith('image/')) {
+        icon.textContent = '';
+        label.textContent = '';
+        const reader = new FileReader();
+        reader.onload = e => { testDrop.style.backgroundImage = `url(${e.target.result})`; testDrop.style.backgroundSize = 'cover'; testDrop.style.backgroundPosition = 'center'; };
+        reader.readAsDataURL(testFiles[0]);
+      } else {
+        testDrop.style.backgroundImage = '';
+        icon.textContent = testFiles.every(f => f.type.startsWith('video/')) ? '🎬' : '🖼️';
+        label.className = 'text-xs font-medium text-gray-700';
+        label.textContent = `${testFiles.length} ${t('files_selected')}`;
+      }
+    }
+
+    function updateTestFileList() {
+      const list = document.getElementById('test-file-list');
+      if (testFiles.length <= 1) { list.classList.add('hidden'); return; }
+      list.classList.remove('hidden');
+      list.innerHTML = testFiles.map((f, i) =>
+        `<div class="flex items-center gap-2 px-2 py-1 bg-gray-50 rounded-lg text-xs">
+          <span class="shrink-0">${f.type.startsWith('video/') ? '🎬' : '📷'}</span>
+          <span class="truncate flex-1 text-gray-600">${f.name}</span>
+          <button onclick="removeTestFile(${i})" class="shrink-0 text-gray-300 hover:text-red-400 transition-colors text-base leading-none">×</button>
+        </div>`).join('');
+    }
+
+    function buildResultCard(filename, d, isVideo) {
+      const icon = isVideo ? '🎬' : '📷';
+      const name = filename.length > 28 ? filename.slice(0, 25) + '…' : filename;
+      let body = '';
+      if (d.error && !d.faces_detected) {
+        body = `<p class="text-xs text-gray-400 px-3 py-2">${d.error}</p>`;
+      } else if (d.faces_detected === 0) {
+        body = `<p class="text-xs text-gray-400 px-3 py-2">${t('no_faces_detected')}</p>`;
+      } else {
+        const frameNote = isVideo && d.frames_sampled ? ` · ${d.frames_sampled} frames` : '';
+        const rows = (d.matches || []).map(m =>
+          `<div class="flex items-center justify-between text-xs px-3 py-1.5 ${m.matched ? 'bg-emerald-50' : ''}">
+            <span class="${m.matched ? 'font-medium text-emerald-800' : 'text-gray-500'}">${m.kid_name || m.kid_id}</span>
+            <span class="${m.matched ? 'text-emerald-600 font-semibold' : 'text-gray-400'}">${(m.confidence * 100).toFixed(1)}%${m.matched ? ' ✓' : ''}</span>
+          </div>`).join('');
+        const fwd = d.forwarded ? `<div class="px-3 pb-2"><span class="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">✓ ${t('forwarded_badge')}</span></div>` : '';
+        const caption = `<p class="text-xs text-gray-400 px-3 pb-2">${d.faces_detected} face${d.faces_detected !== 1 ? 's' : ''}${frameNote}</p>`;
+        body = rows + caption + fwd;
+      }
+      const matched = d.matched;
+      const wrapCls = matched ? 'border-emerald-200' : 'border-gray-200';
+      const hdrCls = matched ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 'bg-gray-50 border-gray-100 text-gray-600';
+      const badge = matched
+        ? `<span class="shrink-0 text-xs font-semibold text-emerald-600">${t('match_found')}</span>`
+        : `<span class="shrink-0 text-xs text-gray-400">${t('no_match')}</span>`;
+      return `<div class="border ${wrapCls} rounded-xl overflow-hidden">
+        <div class="flex items-center gap-2 px-3 py-2 border-b ${hdrCls}">
+          <span class="shrink-0">${icon}</span>
+          <span class="text-xs font-medium truncate flex-1" title="${filename}">${name}</span>
+          ${badge}
+        </div>
+        ${body}
+      </div>`;
+    }
+
+    function setTestProgress(done, total, finished = false) {
+      const bar = document.getElementById('test-progress-bar');
+      const pctEl = document.getElementById('test-progress-pct');
+      const labelEl = document.getElementById('test-progress-label');
+      if (finished) {
+        bar.classList.remove('animate-pulse');
+        bar.style.width = '100%';
+        pctEl.textContent = total > 1 ? '100%' : '';
+        labelEl.textContent = total > 1 ? `${total} / ${total}` : '';
+      } else if (total === 1) {
+        // Indeterminate: full-width pulsing bar
+        bar.style.width = '100%';
+        bar.classList.add('animate-pulse');
+        pctEl.textContent = '';
+        labelEl.textContent = '';
+      } else {
+        const pct = Math.round((done / total) * 100);
+        bar.classList.remove('animate-pulse');
+        bar.style.width = pct + '%';
+        pctEl.textContent = pct + '%';
+        labelEl.textContent = `${done} / ${total}`;
+      }
+    }
+
+    async function runTest() {
+      if (!testFiles.length) { alert(t('select_file_first')); return; }
+      const kidId = document.getElementById('test-kid-select').value;
+      const kidIds = kidId || testKids.map(k => k.id).join(',');
+      if (!kidIds) { alert(t('no_kids_enrolled')); return; }
+      const shouldForward = document.getElementById('test-forward').checked;
+      const btn = document.getElementById('test-run-btn');
+      const resultsList = document.getElementById('test-results-list');
+      const progress = document.getElementById('test-progress');
+      const dot = document.getElementById('test-running-dot');
+
+      btn.disabled = true;
+      dot.classList.remove('hidden');
+      progress.classList.remove('hidden');
+      setTestProgress(0, testFiles.length);
+      document.getElementById('test-placeholder').classList.add('hidden');
+      resultsList.classList.remove('hidden');
+      resultsList.innerHTML = '';
+
+      for (let i = 0; i < testFiles.length; i++) {
+        btn.textContent = testFiles.length > 1 ? `${i + 1} / ${testFiles.length}` : '⏳';
+        if (testFiles.length > 1) setTestProgress(i, testFiles.length);
+        const file = testFiles[i];
+        const isVideo = file.type.startsWith('video/');
+        const form = new FormData();
+        form.append('file', file);
+        try {
+          const ep = isVideo
+            ? `/api/analyze-video?kid_ids=${encodeURIComponent(kidIds)}&sender=test`
+            : `/api/analyze?kid_ids=${encodeURIComponent(kidIds)}&forward=${shouldForward}&is_test=true`;
+          const r = await fetch(ep, { method: 'POST', body: form });
+          const d = await r.json();
+          resultsList.insertAdjacentHTML('beforeend', buildResultCard(file.name, d, isVideo));
+          resultsList.lastElementChild.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+          loadStats(); loadActivity();
+        } catch (_) {
+          resultsList.insertAdjacentHTML('beforeend', buildResultCard(file.name, { error: t('test_failed'), faces_detected: 0, matched: false }, isVideo));
+        }
+      }
+
+      setTestProgress(testFiles.length, testFiles.length, true);
+      btn.disabled = false;
+      btn.textContent = t('run_test');
+      dot.classList.add('hidden');
+      setTimeout(() => {
+        progress.classList.add('hidden');
+        document.getElementById('test-progress-bar').style.width = '0%';
+      }, 1500);
+    }
+
+    // ── Kids tab ──────────────────────────────────────────────────────────────────
+    let kids = [];
+    let selectedKid = null;
+    let pending = [];
+
+    async function loadKids() {
+      const r = await fetch('/api/enrollment/kids');
+      const d = await r.json();
+      kids = d.kids || [];
+      if (selectedKid) {
+        const still = kids.find(k => k.id === selectedKid.id);
+        if (still) { selectedKid = still; document.getElementById('kid-detail-count').textContent = tpl('kid_photos', still.enrolled_count); }
+        else { closeKidDetail(); }
+      }
+      renderKidsGrid();
+      document.getElementById('kids-subtitle').textContent = tpl('kids_subtitle', kids.length, { photos: kids.reduce((s, k) => s + k.enrolled_count, 0) });
+    }
+
+    function renderKidsGrid() {
+      const grid = document.getElementById('kids-grid');
+      let html = kids.map(k => {
+        const active = selectedKid?.id === k.id;
+        const avatar = k.enrolled_count > 0
+          ? `<img src="/api/enrollment/kids/${k.id}/thumbnail" class="w-16 h-16 rounded-full object-cover mx-auto mb-2 ring-2 ring-white shadow-sm" onerror="this.outerHTML='<div class=\\'w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-2 text-2xl font-bold text-emerald-500\\'>${k.name.charAt(0).toUpperCase()}</div>'" />`
+          : `<div class="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-2 text-2xl font-bold text-gray-300">${k.name.charAt(0).toUpperCase()}</div>`;
+        return `<div onclick="selectKid('${k.id}')" class="kid-card bg-white rounded-2xl p-4 shadow-sm border-2 ${active ? 'border-emerald-400' : 'border-gray-100'} text-center">
+          ${avatar}
+          <p class="text-sm font-semibold text-gray-900 truncate">${k.name}</p>
+          <p class="text-xs text-gray-400 mt-0.5">${tpl('kid_photos', k.enrolled_count)}</p>
+        </div>`;
+      }).join('');
+      html += `<div onclick="openModal()" class="kid-card bg-white rounded-2xl p-4 shadow-sm border-2 border-dashed border-gray-200 text-center flex flex-col items-center justify-center min-h-[120px] hover:border-emerald-400 hover:bg-emerald-50 transition-colors">
+        <div class="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center mb-2">
+          <svg class="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+        </div>
+        <p class="text-sm font-medium text-gray-400">${t('add_kid')}</p>
+      </div>`;
+      grid.innerHTML = html;
+    }
+
+    function selectKid(kidId) {
+      const kid = kids.find(k => k.id === kidId);
+      if (!kid) return;
+      selectedKid = kid;
+      document.getElementById('kid-detail').classList.remove('hidden');
+      document.getElementById('kid-detail-name').textContent = kid.name;
+      document.getElementById('kid-detail-count').textContent = tpl('kid_photos', kid.enrolled_count);
+      document.getElementById('delete-kid-btn').onclick = () => deleteKid(kid.id, kid.name);
+      renderKidsGrid();
+      pending = [];
+      document.getElementById('pending-grid').innerHTML = '';
+      document.getElementById('pending-section').classList.add('hidden');
+      loadEnrolled();
+      document.getElementById('kid-detail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function closeKidDetail() {
+      selectedKid = null;
+      document.getElementById('kid-detail').classList.add('hidden');
+      renderKidsGrid();
+    }
+
+    function openModal() { document.getElementById('new-kid-name').value = ''; document.getElementById('add-kid-modal').classList.remove('hidden'); setTimeout(() => document.getElementById('new-kid-name').focus(), 50); }
+    function closeModal() { document.getElementById('add-kid-modal').classList.add('hidden'); }
+
+    async function confirmAddKid() {
+      const name = document.getElementById('new-kid-name').value.trim();
+      if (!name) return;
+      const r = await fetch('/api/enrollment/kids', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+      if (r.ok) {
+        const kid = await r.json();
+        closeModal(); await loadKids(); selectKid(kid.id);
+      } else { showToast(t('failed_add_kid'), 'error'); }
+    }
+
+    async function deleteKid(kidId, name) {
+      if (!confirm(t('delete_kid_confirm').replace('{name}', name))) return;
+      const r = await fetch(`/api/enrollment/kids/${kidId}`, { method: 'DELETE' });
+      if (r.ok) { showToast(t('kid_deleted').replace('{name}', name)); closeKidDetail(); loadKids(); }
+      else showToast(t('failed_delete'), 'error');
+    }
+
+    function startRename() {
+      const input = document.getElementById('rename-input');
+      input.value = selectedKid.name;
+      document.getElementById('kid-detail-name').classList.add('hidden');
+      document.getElementById('rename-btn').classList.add('hidden');
+      input.classList.remove('hidden');
+      input.focus();
+      input.select();
+    }
+
+    function cancelRename() {
+      document.getElementById('rename-input').classList.add('hidden');
+      document.getElementById('kid-detail-name').classList.remove('hidden');
+      document.getElementById('rename-btn').classList.remove('hidden');
+    }
+
+    let _renamePending = false;
+    async function commitRename() {
+      if (_renamePending) return;
+      const input = document.getElementById('rename-input');
+      const newName = input.value.trim();
+      cancelRename();
+      if (!newName || newName === selectedKid.name) return;
+      _renamePending = true;
+      try {
+        const r = await fetch(`/api/enrollment/kids/${selectedKid.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newName }),
+        });
+        if (r.ok) {
+          selectedKid.name = newName;
+          document.getElementById('kid-detail-name').textContent = newName;
+          await loadKids();
+          showToast(t('renamed'));
+        } else { showToast(t('rename_failed'), 'error'); }
+      } finally { _renamePending = false; }
+    }
+
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('border-emerald-400'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('border-emerald-400'));
+    dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('border-emerald-400'); uploadPhotos([...e.dataTransfer.files]); });
+    fileInput.addEventListener('change', () => { uploadPhotos([...fileInput.files]); fileInput.value = ''; });
+
+    async function uploadPhotos(files) {
+      if (!selectedKid) return;
+      if (!_modelReady) { showToast(t('model_loading'), 'error'); return; }
+      for (const file of files) {
+        const form = new FormData(); form.append('file', file);
+        const phId = `ph-${Date.now()}-${Math.random()}`;
+        addPendingPlaceholder(phId, file.name);
+        try {
+          const r = await fetch(`/api/enrollment/kids/${selectedKid.id}/upload`, { method: 'POST', body: form });
+          const d = await r.json();
+          removePlaceholder(phId);
+          if (!r.ok) { showToast(d.detail || t('no_face_detected'), 'error'); continue; }
+          pending.push(d); addPendingCard(d);
+        } catch (e) { removePlaceholder(phId); showToast(t('upload_failed'), 'error'); }
+      }
+    }
+
+    function addPendingPlaceholder(id, filename) {
+      document.getElementById('pending-section').classList.remove('hidden');
+      const div = document.createElement('div'); div.id = id;
+      div.className = 'bg-white rounded-2xl border border-gray-100 p-2 animate-pulse';
+      div.innerHTML = `<div class="w-full aspect-square bg-gray-100 rounded-xl mb-1"></div><p class="text-xs text-gray-400 truncate">${filename}</p>`;
+      document.getElementById('pending-grid').appendChild(div);
+    }
+
+    function removePlaceholder(id) {
+      document.getElementById(id)?.remove();
+      if (!document.getElementById('pending-grid').children.length) document.getElementById('pending-section').classList.add('hidden');
+    }
+
+    function addPendingCard(data) {
+      document.getElementById('pending-section').classList.remove('hidden');
+      const div = document.createElement('div'); div.id = `pending-${data.photo_id}`;
+      div.className = 'bg-white rounded-2xl border border-gray-100 shadow-sm p-2 flex flex-col gap-1';
+      const img = data.face_crop ? `<img src="data:image/jpeg;base64,${data.face_crop}" class="w-full aspect-square object-cover rounded-xl" />` : `<div class="w-full aspect-square bg-gray-100 rounded-xl"></div>`;
+      const faceCount = data.faces_found > 1 ? `<p class="text-xs text-amber-500 text-center">${tpl('face_count', data.faces_found)}</p>` : `<p class="text-xs text-emerald-500 text-center">${t('face_count_1')}</p>`;
+      const quality = data.quality === 'small' ? `<span class="text-xs text-red-500 bg-red-50 rounded-lg px-1.5 py-0.5 text-center">${t('quality_too_small')}</span>` : data.quality === 'ok' ? `<span class="text-xs text-amber-500 bg-amber-50 rounded-lg px-1.5 py-0.5 text-center">${t('quality_small')}</span>` : `<span class="text-xs text-emerald-600 bg-emerald-50 rounded-lg px-1.5 py-0.5 text-center">${t('quality_good')}</span>`;
+      div.innerHTML = `${img}${faceCount}${quality}<button onclick="confirmOne('${data.photo_id}')" class="w-full py-1 bg-emerald-600 text-white text-xs rounded-xl hover:bg-emerald-700">${t('enroll_btn')}</button><button onclick="discardOne('${data.photo_id}')" class="w-full py-1 bg-gray-100 text-gray-500 text-xs rounded-xl hover:bg-gray-200">${t('discard_btn')}</button>`;
+      document.getElementById('pending-grid').appendChild(div);
+    }
+
+    async function confirmOne(photoId) {
+      if (!selectedKid) return;
+      const btn = document.querySelector(`#pending-${photoId} button`);
+      if (btn) { btn.disabled = true; btn.textContent = '…'; }
+      const r = await fetch(`/api/enrollment/kids/${selectedKid.id}/confirm/${photoId}`, { method: 'POST' });
+      const d = await r.json();
+      if (r.ok) {
+        document.getElementById(`pending-${photoId}`)?.remove();
+        pending = pending.filter(p => p.photo_id !== photoId);
+        if (!document.getElementById('pending-grid').children.length) document.getElementById('pending-section').classList.add('hidden');
+        showToast(t('photo_enrolled'));
+        document.getElementById('kid-detail-count').textContent = tpl('kid_photos', d.enrolled_count);
+        loadEnrolled(); loadKids();
+      } else showToast(d.detail || t('enrollment_failed'), 'error');
+    }
+
+    function discardOne(photoId) {
+      document.getElementById(`pending-${photoId}`)?.remove();
+      pending = pending.filter(p => p.photo_id !== photoId);
+      if (!document.getElementById('pending-grid').children.length) document.getElementById('pending-section').classList.add('hidden');
+    }
+    async function confirmAll() { for (const p of [...pending]) await confirmOne(p.photo_id); }
+
+    async function loadEnrolled() {
+      if (!selectedKid) return;
+      const kidId = selectedKid.id;
+      const r = await fetch(`/api/enrollment/kids/${kidId}/photos`);
+      const d = await r.json();
+      if (selectedKid?.id !== kidId) return;
+      const grid = document.getElementById('enrolled-grid');
+      const empty = document.getElementById('enrolled-empty');
+      grid.querySelectorAll('[id^="enrolled-"]:not(#enrolled-empty)').forEach(el => el.remove());
+      document.getElementById('delete-originals-btn').classList.toggle('hidden', !d.photos.length);
+      if (!d.photos.length) { empty.classList.remove('hidden'); return; }
+      empty.classList.add('hidden');
+      d.photos.forEach(photo => {
+        const div = document.createElement('div'); div.id = `enrolled-${photo.photo_id}`;
+        div.className = 'bg-white rounded-2xl border border-emerald-200 shadow-sm p-2 flex flex-col gap-1 group relative';
+        div.innerHTML = `<div class="relative overflow-hidden rounded-xl"><img id="thumb-${photo.photo_id}" src="/api/enrollment/kids/${selectedKid.id}/photos/${photo.photo_id}/thumbnail" class="w-full aspect-square object-cover bg-gray-100" onerror="this.outerHTML='<div id=\\'thumb-${photo.photo_id}\\' class=\\'w-full aspect-square bg-emerald-50 flex items-center justify-center text-emerald-400 text-2xl\\'>✓</div>'" /></div><p class="text-xs text-gray-400 truncate text-center">${new Date(photo.enrolled_at).toLocaleDateString()}</p><button onclick="deleteOriginal('${photo.photo_id}')" id="del-orig-${photo.photo_id}" class="w-full py-1 bg-gray-50 text-gray-400 text-xs rounded-xl hover:bg-orange-50 hover:text-orange-500 transition-colors opacity-0 group-hover:opacity-100">${t('del_orig_btn')}</button><button onclick="removePhoto('${photo.photo_id}')" class="w-full py-1 bg-red-50 text-red-400 text-xs rounded-xl hover:bg-red-100 opacity-0 group-hover:opacity-100">${t('remove_btn')}</button>`;
+        grid.appendChild(div);
+      });
+    }
+
+    async function deleteOriginal(photoId) {
+      if (!selectedKid) return;
+      const r = await fetch(`/api/enrollment/kids/${selectedKid.id}/photos/${photoId}/original`, { method: 'DELETE' });
+      if (r.ok) {
+        const thumb = document.getElementById(`thumb-${photoId}`);
+        if (thumb) thumb.outerHTML = `<div id="thumb-${photoId}" class="w-full aspect-square bg-emerald-50 flex items-center justify-center text-emerald-400 text-2xl">✓</div>`;
+        const btn = document.getElementById(`del-orig-${photoId}`);
+        if (btn) { btn.disabled = true; btn.textContent = t('deleted_state'); btn.className = 'w-full py-1 bg-gray-50 text-gray-300 text-xs rounded-xl cursor-default'; }
+        showToast(t('original_deleted'));
+      } else showToast((await r.json()).detail || t('already_deleted'), 'error');
+    }
+
+    async function deleteAllOriginals() {
+      if (!selectedKid) return;
+      if (!confirm(t('delete_all_originals_confirm').replace('{name}', selectedKid.name))) return;
+      let count = 0;
+      for (const btn of document.querySelectorAll('[id^="del-orig-"]')) {
+        const photoId = btn.id.replace('del-orig-', '');
+        const r = await fetch(`/api/enrollment/kids/${selectedKid.id}/photos/${photoId}/original`, { method: 'DELETE' });
+        if (r.ok) {
+          const thumb = document.getElementById(`thumb-${photoId}`);
+          if (thumb) thumb.outerHTML = `<div id="thumb-${photoId}" class="w-full aspect-square bg-emerald-50 flex items-center justify-center text-emerald-400 text-2xl">✓</div>`;
+          btn.disabled = true; btn.textContent = t('deleted_state'); btn.className = 'w-full py-1 bg-gray-50 text-gray-300 text-xs rounded-xl cursor-default';
+          count++;
+        }
+      }
+      showToast(tpl('originals_deleted', count));
+    }
+
+    async function removePhoto(photoId) {
+      if (!selectedKid) return;
+      const r = await fetch(`/api/enrollment/kids/${selectedKid.id}/photos/${photoId}`, { method: 'DELETE' });
+      if (r.ok) { document.getElementById(`enrolled-${photoId}`)?.remove(); showToast(t('removed')); loadKids(); }
+      else showToast(t('failed_remove'), 'error');
+    }
+
+    // ── Groups tab ────────────────────────────────────────────────────────────────
+    let groups = [];
+    let watchedGroupsConfig = [];
+    let chats = [];
+
+    async function saveScanAllGroups() {
+      const checked = document.getElementById('scan-all-groups').checked;
+      await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scan_all_groups: String(checked) }) });
+    }
+
+    async function refreshGroups(force = false) {
+      try {
+        const [gR, sR] = await Promise.all([
+          fetch('/api/settings/whatsapp/groups' + (force ? '?refresh=true' : '')),
+          fetch('/api/settings'),
+        ]);
+        const gD = await gR.json(), sD = await sR.json();
+        groups = (gD.groups || []).sort((a, b) => a.name.localeCompare(b.name));
+        try { watchedGroupsConfig = JSON.parse(sD.watch_groups || '[]'); } catch (_) {}
+        document.getElementById('scan-all-groups').checked = sD.scan_all_groups === 'true';
+        if (!kids.length) await loadKids();
+        renderGroupList();
+        const wCount = watchedGroupsConfig.length;
+        document.getElementById('groups-subtitle').textContent = tpl('groups_subtitle', wCount);
+      } catch (_) {}
+    }
+
+    function renderGroupList() {
+      const query = document.getElementById('group-search').value.trim().toLowerCase();
+      const listEl = document.getElementById('group-list');
+      const placeholder = document.getElementById('group-list-placeholder');
+      if (!groups.length) { listEl.classList.add('hidden'); placeholder.classList.remove('hidden'); return; }
+      placeholder.classList.add('hidden'); listEl.classList.remove('hidden');
+      const filtered = query ? groups.filter(g => g.name.toLowerCase().includes(query)) : groups.filter(g => watchedGroupsConfig.some(w => w.id === g.id));
+      if (!filtered.length) {
+        listEl.innerHTML = `<p class="px-4 py-3 text-sm text-gray-400">${query ? t('no_groups_match') : t('search_to_add_groups')}</p>`;
+        return;
+      }
+      listEl.innerHTML = '';
+      filtered.forEach(g => {
+        const watched = watchedGroupsConfig.find(w => w.id === g.id);
+        const isChecked = !!watched;
+        const assignedKidIds = watched ? watched.kid_ids : [];
+        const row = document.createElement('div');
+        row.className = 'px-4 py-3 ' + (isChecked ? 'bg-emerald-50' : 'bg-white hover:bg-gray-50');
+        row.dataset.groupId = g.id;
+        row.dataset.kbditem = '1';
+        const kidOptions = kids.length
+          ? kids.map(k => {
+              const checked = isChecked && (assignedKidIds.length === 0 || assignedKidIds.includes(k.id)) ? 'checked' : '';
+              return `<label class="flex items-center gap-1.5 cursor-pointer select-none"><input type="checkbox" value="${k.id}" class="kid-assign accent-emerald-600" ${checked} /><span class="text-xs text-gray-700">${k.name}</span></label>`;
+            }).join('')
+          : `<span class="text-xs text-gray-400">${t('no_kids_enrolled_yet')}</span>`;
+        row.innerHTML = `<div class="flex items-center gap-3"><input type="checkbox" class="group-toggle accent-emerald-600 w-4 h-4 shrink-0 cursor-pointer" ${isChecked ? 'checked' : ''} /><span class="text-sm font-medium text-gray-800 flex-1 truncate">${g.name}</span>${isChecked ? `<span class="kid-count-badge text-xs text-emerald-600 shrink-0">${tpl('kids_count', assignedKidIds.length || kids.length)}</span>` : ''}</div><div class="kid-row mt-2.5 ms-7 flex flex-wrap gap-x-4 gap-y-1.5 ${isChecked ? '' : 'hidden'}">${kidOptions}</div>`;
+        row.querySelector('.group-toggle').addEventListener('change', function () {
+          if (this.checked) watchedGroupsConfig.push({ id: g.id, name: g.name, kid_ids: kids.map(k => k.id) });
+          else watchedGroupsConfig = watchedGroupsConfig.filter(w => w.id !== g.id);
+          renderGroupList();
+        });
+        row.querySelectorAll('.kid-assign').forEach(cb => {
+          cb.addEventListener('change', () => {
+            const checkedIds = [...row.querySelectorAll('.kid-assign:checked')].map(el => el.value);
+            if (checkedIds.length === 0) { watchedGroupsConfig = watchedGroupsConfig.filter(w => w.id !== g.id); renderGroupList(); return; }
+            const entry = watchedGroupsConfig.find(w => w.id === g.id);
+            if (!entry) return;
+            entry.kid_ids = checkedIds;
+            const badge = row.querySelector('.kid-count-badge');
+            if (badge) { badge.textContent = tpl('kids_count', checkedIds.length); }
+          });
+        });
+        listEl.appendChild(row);
+      });
+    }
+
+    async function saveGroupsNow() {
+      try {
+        await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ watch_groups: JSON.stringify(watchedGroupsConfig) }),
+        });
+        showToast(t('groups_saved'));
+        loadStatus();
+      } catch (_) { showToast(t('failed_save'), 'error'); }
+    }
+
+    // ── Actions tab ───────────────────────────────────────────────────────────────
+    async function loadSettings() {
+      try {
+        const r = await fetch('/api/settings');
+        const d = await r.json();
+        if (d.forward_to_id) {
+          const fi = document.getElementById('forward-input');
+          fi.dataset.selectedId = d.forward_to_id;
+          if (d.forward_to_name) fi.value = d.forward_to_name;
+          fi.dataset.savedValue = d.forward_to_id;
+          document.getElementById('forward-enabled').checked = true;
+          document.getElementById('forward-section').classList.remove('hidden');
+        }
+        refreshChats();
+        if (d.save_photos_enabled === 'true') { document.getElementById('save-enabled').checked = true; document.getElementById('save-section').classList.remove('hidden'); }
+        if (d.save_photos_path) document.getElementById('save-path').value = d.save_photos_path;
+        if (d.save_photos_organize_by) { const radio = document.querySelector(`input[name="save-organize"][value="${d.save_photos_organize_by}"]`); if (radio) radio.checked = true; }
+        updateSaveExample();
+        if (d.digest_mode === 'true') { document.getElementById('digest-mode').checked = true; document.getElementById('digest-time-row').classList.remove('hidden'); }
+        if (d.digest_time) document.getElementById('digest-time').value = d.digest_time;
+        // Google Photos
+        const gpConnected = await fetch('/api/settings/google-photos/status').then(r => r.json()).catch(() => ({ connected: false }));
+        document.getElementById('gp-hint').classList.toggle('hidden', gpConnected.connected);
+        if (d.google_photos_enabled === 'true') {
+          document.getElementById('gp-enabled').checked = true;
+          document.getElementById('gp-album-settings').classList.remove('hidden');
+        }
+        if (d.google_photos_album_organize_by) {
+          const radio = document.querySelector(`input[name="gp-organize"][value="${d.google_photos_album_organize_by}"]`);
+          if (radio) { radio.checked = true; updateGPAlbumNameRow(); }
+        }
+        if (d.google_photos_album_name) document.getElementById('gp-album-name').value = d.google_photos_album_name;
+        if (d.language) applyLang(d.language);
+      } catch (_) {}
+    }
+
+    async function refreshChats(force = false) {
+      try {
+        const r = await fetch('/api/settings/whatsapp/chats' + (force ? '?refresh=true' : ''));
+        const d = await r.json();
+        chats = d.chats || [];
+        const fi = document.getElementById('forward-input');
+        const currentId = fi.dataset.savedValue || fi.dataset.selectedId;
+        if (currentId) {
+          const found = chats.find(c => c.id === currentId);
+          if (found) { fi.value = found.name; fi.dataset.selectedId = found.id; }
+        }
+        delete fi.dataset.savedValue;
+      } catch (_) {}
+    }
+
+    function filterForwardChats() {
+      const fi = document.getElementById('forward-input');
+      const query = fi.value.toLowerCase();
+      const dropdown = document.getElementById('forward-dropdown');
+      const filtered = query ? chats.filter(c => c.name.toLowerCase().includes(query)) : chats;
+      if (!filtered.length) { dropdown.classList.add('hidden'); return; }
+      dropdown.classList.remove('hidden');
+      dropdown.innerHTML = filtered.map(c => {
+        const label = c.isGroup ? `[Group] ${c.name}` : c.name;
+        return `<div class="px-3 py-2 text-sm text-gray-700 hover:bg-emerald-50 cursor-pointer truncate"
+                     onmousedown="selectForwardChat(${JSON.stringify(c.id)},${JSON.stringify(c.name)})">${label}</div>`;
+      }).join('');
+    }
+
+    function selectForwardChat(id, name) {
+      const fi = document.getElementById('forward-input');
+      fi.value = name;
+      fi.dataset.selectedId = id;
+      document.getElementById('forward-dropdown').classList.add('hidden');
+    }
+
+    function toggleForwardSection() {
+      const enabled = document.getElementById('forward-enabled').checked;
+      document.getElementById('forward-section').classList.toggle('hidden', !enabled);
+      if (enabled) refreshChats();
+    }
+    function toggleSaveSection() { document.getElementById('save-section').classList.toggle('hidden', !document.getElementById('save-enabled').checked); }
+    function toggleDigestTime() { document.getElementById('digest-time-row').classList.toggle('hidden', !document.getElementById('digest-mode').checked); }
+    function toggleGPAlbumSettings() { document.getElementById('gp-album-settings').classList.toggle('hidden', !document.getElementById('gp-enabled').checked); }
+    function updateGPAlbumNameRow() {
+      const by = document.querySelector('input[name="gp-organize"]:checked')?.value;
+      document.getElementById('gp-album-name-row').classList.toggle('hidden', by !== 'single');
+    }
+    function updateSaveExample() {
+      const by = document.querySelector('input[name="save-organize"]:checked')?.value || 'group';
+      document.getElementById('save-example').textContent = by === 'kid' ? 'save_folder / Kid Name / 20260312_143000.jpg' : 'save_folder / Group Name / 20260312_143000.jpg';
+    }
+
+    async function browseSaveFolder() {
+      try {
+        const r = await fetch('/api/settings/browse-folder');
+        const d = await r.json();
+        if (d.path) document.getElementById('save-path').value = d.path;
+        else if (d.error) showToast(t('folder_picker_unavailable'), 'error');
+      } catch (_) { showToast(t('could_not_open_picker'), 'error'); }
+    }
+
+    async function saveSettings() {
+      try {
+        const forwardInput = document.getElementById('forward-input');
+        const forwardEnabled = document.getElementById('forward-enabled').checked;
+        const saveEnabled = document.getElementById('save-enabled').checked;
+        const savePath = document.getElementById('save-path').value.trim();
+        if (saveEnabled && !savePath) { showToast(t('enter_folder_path'), 'error'); return; }
+        const payload = {
+          forward_to_id: forwardEnabled ? (forwardInput.dataset.selectedId || '') : '',
+          forward_to_name: forwardEnabled ? forwardInput.value : '',
+          save_photos_enabled: String(saveEnabled),
+          save_photos_path: savePath || null,
+          save_photos_organize_by: document.querySelector('input[name="save-organize"]:checked')?.value || 'group',
+          digest_mode: String(document.getElementById('digest-mode').checked),
+          digest_time: document.getElementById('digest-time').value || '20:00',
+          google_photos_enabled: String(document.getElementById('gp-enabled').checked),
+          google_photos_album_organize_by: document.querySelector('input[name="gp-organize"]:checked')?.value || 'group',
+          google_photos_album_name: document.getElementById('gp-album-name').value.trim() || null,
+        };
+        await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        showToast(t('settings_saved'));
+      } catch (_) { showToast(t('failed_save_settings'), 'error'); }
+    }
+
+    // ── Settings tab ──────────────────────────────────────────────────────────────
+    async function loadAppSettings() {
+      try {
+        const r = await fetch('/api/settings');
+        const d = await r.json();
+        if (d.confidence_threshold) {
+          const pct = Math.round(parseFloat(d.confidence_threshold) * 100);
+          document.getElementById('threshold-slider').value = pct;
+          document.getElementById('threshold-value').textContent = pct + '%';
+        }
+        document.getElementById('thumbnails-enabled').checked = d.thumbnails_enabled !== 'false';
+        document.getElementById('thumbnail-retention').value = d.thumbnail_retention_hours || '168';
+        document.getElementById('thumbnail-options').classList.toggle('hidden', d.thumbnails_enabled === 'false');
+        checkGPStatus();
+        if (d.google_photos_client_id) document.getElementById('gp-client-id').value = d.google_photos_client_id;
+        if (d.google_photos_client_secret) document.getElementById('gp-client-secret').value = '••••••••';
+        if (d.pin_enabled === 'true') {
+          document.getElementById('pin-enabled').checked = true;
+          document.getElementById('pin-field-row').classList.remove('hidden');
+        }
+        document.getElementById('schedule-enabled').checked = d.schedule_enabled === 'true';
+        if (d.schedule_from) document.getElementById('schedule-from').value = d.schedule_from;
+        if (d.schedule_to) document.getElementById('schedule-to').value = d.schedule_to;
+        const lang = d.language || getLang();
+        document.querySelectorAll('input[name="app-lang"]').forEach(r => { r.checked = r.value === lang; });
+        applyLang(lang);
+        if (!d.language) fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ language: lang }) });
+        checkWAStatus();
+      } catch (_) {}
+    }
+
+    async function saveAppSettings() {
+      try {
+        const threshold = parseInt(document.getElementById('threshold-slider').value) / 100;
+        const gpClientId = document.getElementById('gp-client-id').value.trim();
+        const gpClientSecret = document.getElementById('gp-client-secret').value.trim();
+        const payload = {
+          confidence_threshold: String(threshold),
+          language: document.querySelector('input[name="app-lang"]:checked')?.value || getLang(),
+          thumbnails_enabled: String(document.getElementById('thumbnails-enabled').checked),
+          thumbnail_retention_hours: document.getElementById('thumbnail-retention').value || '168',
+          pin_enabled: String(document.getElementById('pin-enabled').checked),
+        };
+        if (gpClientId) payload.google_photos_client_id = gpClientId;
+        if (gpClientSecret && gpClientSecret !== '••••••••') payload.google_photos_client_secret = gpClientSecret;
+        const pinVal = document.getElementById('app-pin').value.trim();
+        if (pinVal) payload.app_pin = pinVal;
+        await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        showToast('Settings saved!');
+        loadAppSettings();
+      } catch (_) { showToast('Failed to save settings', 'error'); }
+    }
+
+    function togglePinField() {
+      document.getElementById('pin-field-row').classList.toggle('hidden', !document.getElementById('pin-enabled').checked);
+    }
+
+    function onLangChange(lang) {
+      applyLang(lang);
+      fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ language: lang }) });
+    }
+
+    async function saveSchedule() {
+      const enabled = document.getElementById('schedule-enabled').checked;
+      const from = document.getElementById('schedule-from').value;
+      const to = document.getElementById('schedule-to').value;
+      await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schedule_enabled: enabled ? 'true' : 'false', schedule_from: from, schedule_to: to }),
+      });
+      showToast(enabled ? `Schedule saved: ${from} – ${to}` : 'Schedule disabled');
+    }
+
+    async function checkWAStatus() {
+      try {
+        const r = await fetch('/api/settings/whatsapp/status');
+        const d = await r.json();
+        if (d.connected) {
+          document.getElementById('wa-connected').classList.remove('hidden');
+          document.getElementById('wa-disconnected').classList.add('hidden');
+          document.getElementById('wa-name').textContent = d.phone?.name || 'Connected';
+          document.getElementById('wa-number').textContent = d.phone?.number ? `+${d.phone.number}` : '';
+        } else {
+          document.getElementById('wa-connected').classList.add('hidden');
+          document.getElementById('wa-disconnected').classList.remove('hidden');
+          if (d.sessionExists) {
+            document.getElementById('wa-disconnected-msg').textContent = t('wa_session_disconnected');
+            document.getElementById('qr-section').classList.add('hidden');
+          } else {
+            document.getElementById('wa-disconnected-msg').textContent = t('wa_not_linked');
+            document.getElementById('qr-section').classList.remove('hidden');
+            pollQR();
+          }
+        }
+      } catch (_) {}
+    }
+
+    async function pollQR() {
+      try {
+        const r = await fetch('/api/settings/whatsapp/qr');
+        const d = await r.json();
+        if (d.qr) {
+          document.getElementById('qr-loading').classList.add('hidden');
+          const img = document.getElementById('qr-image');
+          img.src = d.qr;
+          img.classList.remove('hidden');
+          setTimeout(checkWAStatus, 10000);
+        } else {
+          setTimeout(pollQR, 3000);
+        }
+      } catch (_) { setTimeout(pollQR, 5000); }
+    }
+
+    async function waDisconnect() {
+      const btn = document.getElementById('wa-disconnect-btn');
+      btn.disabled = true; btn.textContent = t('disconnecting');
+      try {
+        await fetch('/api/wa-disconnect', { method: 'POST' });
+        showToast(t('disconnected_phone_notif'));
+        setTimeout(checkWAStatus, 1500);
+      } catch (_) { showToast(t('could_not_disconnect'), 'error'); btn.disabled = false; btn.textContent = t('disconnect'); }
+    }
+
+    async function waLogout() {
+      if (!confirm(t('wa_logout_confirm'))) return;
+      const btn = document.getElementById('wa-logout-btn');
+      btn.disabled = true; btn.textContent = t('signing_out');
+      try {
+        await fetch('/api/wa-logout', { method: 'POST' });
+        showToast(t('signed_out_qr'));
+        setTimeout(checkWAStatus, 2000);
+      } catch (_) { showToast(t('could_not_sign_out'), 'error'); btn.disabled = false; btn.textContent = t('sign_out'); }
+    }
+
+    async function waConnect() {
+      const btn = document.getElementById('wa-connect-btn');
+      btn.disabled = true; btn.textContent = t('connecting_ellipsis');
+      try {
+        await fetch('/api/wa-connect', { method: 'POST' });
+        showToast(t('reconnecting'));
+        setTimeout(checkWAStatus, 3000);
+      } catch (_) { showToast(t('could_not_connect'), 'error'); btn.disabled = false; btn.textContent = t('connect'); }
+    }
+
+    async function checkGPStatus() {
+      try {
+        const r = await fetch('/api/settings/google-photos/status');
+        const d = await r.json();
+        document.getElementById('gp-not-connected').classList.toggle('hidden', d.connected);
+        document.getElementById('gp-connected-badge').classList.toggle('hidden', !d.connected);
+        document.getElementById('gp-connect-btn').classList.toggle('hidden', d.connected);
+        document.getElementById('gp-disconnect-btn').classList.toggle('hidden', !d.connected);
+      } catch (_) {}
+    }
+
+    async function connectGooglePhotos() {
+      const clientId = document.getElementById('gp-client-id').value.trim();
+      const clientSecret = document.getElementById('gp-client-secret').value.trim();
+      if (!clientId || !clientSecret) { showToast('Enter Client ID and Client Secret first, then save', 'error'); return; }
+      await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ google_photos_client_id: clientId, google_photos_client_secret: clientSecret }),
+      });
+      const r = await fetch('/api/settings/google-photos/auth-url');
+      const d = await r.json();
+      if (d.error) { showToast(d.error, 'error'); return; }
+      window.location.href = d.url;
+    }
+
+    async function disconnectGooglePhotos() {
+      await fetch('/api/settings/google-photos/disconnect', { method: 'POST' });
+      document.getElementById('gp-not-connected').classList.remove('hidden');
+      document.getElementById('gp-connected-badge').classList.add('hidden');
+      document.getElementById('gp-connect-btn').classList.remove('hidden');
+      document.getElementById('gp-disconnect-btn').classList.add('hidden');
+      showToast('Disconnected from Google Photos');
+    }
+
+    // ── Backup & Restore ──────────────────────────────────────────────────────────
+    function downloadBackup() {
+      const a = document.createElement('a');
+      a.href = '/api/myne/backup';
+      a.download = '';
+      a.click();
+    }
+
+    async function uploadBackup(input) {
+      const file = input.files[0];
+      if (!file) return;
+      const fd = new FormData();
+      fd.append('file', file);
+      try {
+        showToast('Restoring backup…');
+        const r = await fetch('/api/myne/restore', { method: 'POST', body: fd });
+        const d = await r.json();
+        if (!r.ok) { showToast(d.error || 'Restore failed', 'error'); return; }
+        showToast(`Restored: ${d.restored_kids} kid${d.restored_kids !== 1 ? 's' : ''}, ${d.restored_settings} settings`);
+        loadSettings();
+        loadKids();
+      } catch (_) {
+        showToast('Restore failed', 'error');
+      } finally {
+        input.value = '';
+      }
+    }
+
+    // ── Init ───────────────────────────────────────────────────────────────────────
+    applyLang(getLang());
+    loadNavStatus();
+    loadStatus();
+    setActivityView(activityView);
+    checkModelStatus();
+
+    showTab('activity');
+
+    // Handle Google Photos OAuth callback
+    const _gpParams = new URLSearchParams(window.location.search);
+    if (_gpParams.get('gp_connected') === '1') {
+      showTab('settings');
+      showToast('Google Photos connected!');
+      checkGPStatus();
+      window.history.replaceState({}, '', '/');
+    } else if (_gpParams.get('gp_error')) {
+      showTab('settings');
+      showToast(`Google Photos error: ${_gpParams.get('gp_error')}`, 'error');
+      window.history.replaceState({}, '', '/');
+    }
+
+    setInterval(() => { if (!document.getElementById('tab-activity').classList.contains('hidden')) { loadStats(); loadActivity(); } }, 30000);
+  </script>
+  <script src="/static/dark.js"></script>
+  <script src="/static/pin_lock.js?v=2"></script>
+  <script src="/static/kbd-nav.js"></script>
+  <script>
+    initKbdNav(
+      document.getElementById('group-search'),
+      () => document.querySelectorAll('#group-list [data-kbditem]'),
+      el => el.querySelector('.group-toggle').click(),
+      null
+    );
+  </script>
+</body>
+</html>
