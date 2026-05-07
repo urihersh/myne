@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Myne – Setup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script>tailwind.config = { theme: { extend: { fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] } } } }</script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="/static/dark.css" />
+</head>
+<body class="bg-gray-50 min-h-screen font-sans antialiased flex flex-col">
+
+  <div class="flex-1 flex flex-col items-center justify-center px-4 py-12">
+
+    <!-- Logo -->
+    <div class="flex items-center gap-2.5 mb-10">
+      <img src="/static/favicon.svg" class="w-10 h-10" alt="Myne" />
+      <span class="text-xl font-bold text-gray-900">Myne</span>
+    </div>
+
+    <!-- Progress steps -->
+    <div class="flex items-center gap-2 mb-8" id="step-indicators">
+      <!-- rendered by JS -->
+    </div>
+
+    <!-- Card -->
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 w-full max-w-md">
+
+      <!-- Step 1: Connect WhatsApp -->
+      <div id="step-1" class="p-8">
+        <div class="w-12 h-12 rounded-2xl bg-green-50 flex items-center justify-center mb-4">
+          <svg class="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+          </svg>
+        </div>
+        <h2 class="text-xl font-bold text-gray-900 mb-1">Connect WhatsApp</h2>
+        <p class="text-sm text-gray-500 mb-6">Scan the QR code with your phone to link WhatsApp to Myne.</p>
+
+        <div id="wa-connected-banner" class="hidden mb-4 flex items-center gap-3 p-4 bg-green-50 rounded-xl border border-green-100">
+          <span class="w-3 h-3 rounded-full bg-green-500 flex-shrink-0"></span>
+          <div>
+            <p class="font-medium text-green-800" id="wa-name-ob">Connected!</p>
+            <p class="text-sm text-green-600" id="wa-number-ob"></p>
+          </div>
+        </div>
+
+        <div id="wa-qr-area" class="text-center">
+          <div id="qr-loading-ob" class="py-8 text-gray-400 text-sm">Waiting for QR code…</div>
+          <img id="qr-image-ob" class="hidden mx-auto w-52 h-52 rounded-xl border border-gray-200 shadow-sm mb-3" />
+          <p class="text-xs text-gray-400">Open WhatsApp → Linked Devices → Link a Device</p>
+        </div>
+
+        <button id="step1-next" onclick="goStep(2)"
+                class="hidden mt-6 w-full py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-blue-800 shadow-sm transition-all">
+          Continue →
+        </button>
+        <button onclick="skipOnboarding()"
+                class="mt-3 w-full py-2.5 text-gray-400 text-sm hover:text-gray-600 transition-colors">
+          Skip setup — go to dashboard
+        </button>
+      </div>
+
+      <!-- Step 2: Enroll a kid -->
+      <div id="step-2" class="hidden p-8">
+        <div class="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center mb-4">
+          <svg class="w-6 h-6 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+          </svg>
+        </div>
+        <h2 class="text-xl font-bold text-gray-900 mb-1">Enroll your kid</h2>
+        <p class="text-sm text-gray-500 mb-6">Add your child and upload a few clear face photos so Myne can recognise them.</p>
+
+        <div id="kids-status" class="mb-4 p-4 bg-gray-50 rounded-xl border border-gray-100 text-sm text-gray-500">
+          Checking enrolled kids…
+        </div>
+
+        <a href="/static/myne.html" target="_blank"
+           class="flex items-center justify-center gap-2 w-full py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-blue-800 shadow-sm transition-all">
+          Open Myne → Kids
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+          </svg>
+        </a>
+        <button onclick="checkKidsAndContinue()"
+                class="mt-2 w-full py-2.5 bg-gray-100 text-gray-600 text-sm font-medium rounded-xl hover:bg-gray-200 transition-colors">
+          I've enrolled — check &amp; continue
+        </button>
+        <button onclick="goStep(3)"
+                class="mt-2 w-full py-2 text-gray-400 text-sm hover:text-gray-600 transition-colors">
+          Skip this step
+        </button>
+      </div>
+
+      <!-- Step 3: Pick a group -->
+      <div id="step-3" class="hidden p-8">
+        <div class="w-12 h-12 rounded-2xl bg-emerald-50 flex items-center justify-center mb-4">
+          <svg class="w-6 h-6 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+        </div>
+        <h2 class="text-xl font-bold text-gray-900 mb-1">Add a group to monitor</h2>
+        <p class="text-sm text-gray-500 mb-6">Choose the WhatsApp group (e.g. your child's class) that Myne should watch for photos and videos.</p>
+
+        <div id="groups-status" class="mb-4 p-4 bg-gray-50 rounded-xl border border-gray-100 text-sm text-gray-500">
+          Checking configured groups…
+        </div>
+
+        <a href="/static/myne.html" target="_blank"
+           class="flex items-center justify-center gap-2 w-full py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-blue-800 shadow-sm transition-all">
+          Open Myne → Groups
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+          </svg>
+        </a>
+        <button onclick="checkGroupsAndContinue()"
+                class="mt-2 w-full py-2.5 bg-gray-100 text-gray-600 text-sm font-medium rounded-xl hover:bg-gray-200 transition-colors">
+          I've added a group — check &amp; continue
+        </button>
+        <button onclick="goStep(4)"
+                class="mt-2 w-full py-2 text-gray-400 text-sm hover:text-gray-600 transition-colors">
+          Skip this step
+        </button>
+      </div>
+
+      <!-- Step 4: Done! -->
+      <div id="step-4" class="hidden p-8 text-center">
+        <div class="w-16 h-16 rounded-2xl bg-green-50 flex items-center justify-center mx-auto mb-4">
+          <svg class="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </div>
+        <h2 class="text-2xl font-bold text-gray-900 mb-2">You're all set!</h2>
+        <p class="text-sm text-gray-500 mb-8">Myne is ready. As soon as a photo or video arrives in your monitored group, Myne will scan it and notify you when your kid is spotted.</p>
+        <button onclick="finishOnboarding()"
+                class="w-full py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-semibold rounded-xl hover:from-blue-700 hover:to-blue-800 shadow-sm transition-all">
+          Go to Dashboard
+        </button>
+      </div>
+
+    </div>
+
+    <!-- Step label -->
+    <p id="step-label" class="text-xs text-gray-400 mt-4"></p>
+
+  </div>
+
+  <script>
+    const STEPS = 4;
+    let currentStep = 1;
+
+    function renderStepIndicators() {
+      const el = document.getElementById('step-indicators');
+      el.innerHTML = Array.from({ length: STEPS }, (_, i) => {
+        const n = i + 1;
+        const done = n < currentStep;
+        const active = n === currentStep;
+        return `<div class="flex items-center gap-2">
+          <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+            done ? 'bg-green-500 text-white' : active ? 'bg-emerald-600 text-white' : 'bg-gray-200 text-gray-400'
+          }">${done ? '✓' : n}</div>
+          ${n < STEPS ? '<div class="w-6 h-0.5 ' + (done ? 'bg-green-400' : 'bg-gray-200') + '"></div>' : ''}
+        </div>`;
+      }).join('');
+      const labels = ['Connect', 'Enroll', 'Groups', 'Done'];
+      document.getElementById('step-label').textContent = `Step ${currentStep} of ${STEPS} — ${labels[currentStep - 1]}`;
+    }
+
+    function goStep(n) {
+      document.getElementById(`step-${currentStep}`).classList.add('hidden');
+      currentStep = n;
+      document.getElementById(`step-${currentStep}`).classList.remove('hidden');
+      renderStepIndicators();
+      if (n === 2) checkKidsStatus();
+      if (n === 3) checkGroupsStatus();
+    }
+
+    // ── Step 1: WhatsApp ──────────────────────────────────────────────────────
+
+    async function pollStatus() {
+      try {
+        const r = await fetch('/api/settings/whatsapp/status');
+        const d = await r.json();
+        if (d.connected) {
+          document.getElementById('wa-qr-area').classList.add('hidden');
+          const banner = document.getElementById('wa-connected-banner');
+          banner.classList.remove('hidden');
+          document.getElementById('wa-name-ob').textContent = d.phone?.name || 'Connected!';
+          document.getElementById('wa-number-ob').textContent = d.phone?.number ? `+${d.phone.number}` : '';
+          document.getElementById('step1-next').classList.remove('hidden');
+          return;
+        }
+        pollQR();
+      } catch (_) {
+        setTimeout(pollStatus, 5000);
+      }
+    }
+
+    async function pollQR() {
+      try {
+        const r = await fetch('/api/settings/whatsapp/qr');
+        const d = await r.json();
+        if (d.qr) {
+          document.getElementById('qr-loading-ob').classList.add('hidden');
+          const img = document.getElementById('qr-image-ob');
+          img.src = d.qr;
+          img.classList.remove('hidden');
+          setTimeout(pollStatus, 8000);
+        } else {
+          setTimeout(pollQR, 3000);
+        }
+      } catch (_) {
+        setTimeout(pollQR, 5000);
+      }
+    }
+
+    // ── Step 2: Kids ──────────────────────────────────────────────────────────
+
+    async function checkKidsStatus() {
+      try {
+        const r = await fetch('/api/enrollment/kids');
+        const d = await r.json();
+        const kids = (d.kids || []).filter(k => k.enrolled_count > 0);
+        const el = document.getElementById('kids-status');
+        if (kids.length) {
+          el.className = 'mb-4 p-4 bg-green-50 rounded-xl border border-green-100 text-sm text-green-800';
+          el.innerHTML = `✓ ${kids.length} kid${kids.length !== 1 ? 's' : ''} enrolled: ${kids.map(k => `<strong>${k.name}</strong> (${k.enrolled_count} photo${k.enrolled_count !== 1 ? 's' : ''})`).join(', ')}`;
+          return true;
+        } else {
+          el.className = 'mb-4 p-4 bg-amber-50 rounded-xl border border-gray-100 text-sm text-amber-800';
+          el.textContent = 'No kids enrolled yet — open the Enrollment page and add at least one photo.';
+          return false;
+        }
+      } catch (_) { return false; }
+    }
+
+    async function checkGroupsStatus() {
+      try {
+        const r = await fetch('/api/settings');
+        const d = await r.json();
+        const groups = JSON.parse(d.watch_groups || '[]');
+        const el = document.getElementById('groups-status');
+        if (groups.length) {
+          el.className = 'mb-4 p-4 bg-green-50 rounded-xl border border-green-100 text-sm text-green-800';
+          el.innerHTML = `✓ ${groups.length} group${groups.length !== 1 ? 's' : ''} configured: ${groups.map(g => `<strong>${g.name}</strong>`).join(', ')}`;
+          return true;
+        } else {
+          el.className = 'mb-4 p-4 bg-amber-50 rounded-xl border border-gray-100 text-sm text-amber-800';
+          el.textContent = 'No groups added yet — open Settings and add the WhatsApp group you want to monitor.';
+          return false;
+        }
+      } catch (_) { return false; }
+    }
+
+    async function checkAndContinue(checkFn, elementId, nextStep, hint) {
+      const ok = await checkFn();
+      if (ok) { goStep(nextStep); }
+      else {
+        const el = document.getElementById(elementId);
+        el.innerHTML += ` <span class="font-medium">${hint}</span>`;
+      }
+    }
+
+    // ── Step 3: Groups ────────────────────────────────────────────────────────
+
+    function checkKidsAndContinue() {
+      return checkAndContinue(checkKidsStatus, 'kids-status', 3, 'Please enroll at least one kid first.');
+    }
+
+    function checkGroupsAndContinue() {
+      return checkAndContinue(checkGroupsStatus, 'groups-status', 4, 'Please add at least one group first.');
+    }
+
+    // ── Finish ────────────────────────────────────────────────────────────────
+
+    function skipOnboarding() {
+      window.location.href = '/static/myne.html';
+    }
+
+    function finishOnboarding() {
+      window.location.href = '/static/myne.html';
+    }
+
+    // ── Init ─────────────────────────────────────────────────────────────────
+
+    renderStepIndicators();
+    pollStatus();
+  </script>
+  <script src="/static/dark.js"></script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    volumes:
+      - ./data:/app/data
+    environment:
+      - BOT_PORT=3001
+      - PYTHON_API_URL=http://backend:8000
+      - DATA_DIR=/app/data
+    env_file:
+      - .env
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/status', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - DATA_DIR=/app/data
+      - BOT_API_URL=http://bot:3001
+      - PYTHON_API_URL=http://backend:8000
+      - INSIGHTFACE_HOME=/app/data/insightface
+    env_file:
+      - .env
+    depends_on:
+      - bot
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
