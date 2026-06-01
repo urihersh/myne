@@ -1,6 +1,6 @@
 from fastapi import FastAPI, UploadFile, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
 from contextlib import asynccontextmanager
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -264,8 +264,9 @@ async def _thumbnail_cleanup_scheduler():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
-    for subdir in ["enrolled", "embeddings", "temp", "thumbnails", "originals"]:
+    for subdir in ["enrolled", "embeddings", "temp", "thumbnails", "originals", "logs"]:
         (DATA_DIR / subdir).mkdir(parents=True, exist_ok=True)
+    _rotate_logs()
     app.state.face_service = FaceService(str(DATA_DIR))
     asyncio.get_running_loop().run_in_executor(None, warm_up_model)
     settings = get_settings()
@@ -410,6 +411,7 @@ async def analyze_photo(request: Request, file: UploadFile,
                 matched=result.get("matched", False),
                 confidence=best_confidence,
                 forwarded=forwarded,
+                saved_to_gp=gp_saved,
                 kid_names=", ".join(m["kid_name"] for m in matched_kids),
                 matched_photo_path=matched_photo_path,
                 thumbnail_filename=thumbnail_filename,
@@ -486,6 +488,7 @@ async def analyze_video(request: Request, file: UploadFile,
                 matched=result.get("matched", False),
                 confidence=best_confidence,
                 forwarded=forwarded,
+                saved_to_gp=gp_saved,
                 kid_names=", ".join(m["kid_name"] for m in matched_kids),
                 matched_photo_path=matched_photo_path,
                 thumbnail_filename=thumbnail_filename,
@@ -549,6 +552,76 @@ async def rerun_actions(activity_id: int):
     if fwd_err:
         result["forward_error"] = fwd_err
     return result
+
+
+LOGS_DIR = DATA_DIR / "logs"
+LOG_PATHS = {
+    "backend": LOGS_DIR / "backend.log",
+    "bot": LOGS_DIR / "bot.log",
+}
+_LOG_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+
+def _rotate_logs():
+    for p in LOG_PATHS.values():
+        try:
+            if p.exists() and p.stat().st_size > _LOG_MAX_BYTES:
+                text = p.read_bytes()
+                p.write_bytes(text[-_LOG_MAX_BYTES // 2:])
+        except Exception:
+            pass
+
+@app.get("/api/logs")
+async def get_logs(service: str = "backend", lines: int = 200):
+    log_path = LOG_PATHS.get(service)
+    if not log_path:
+        raise HTTPException(status_code=400, detail="Unknown service")
+    if not log_path.exists():
+        return {"lines": [], "service": service}
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "tail", f"-{lines}", str(log_path),
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
+        )
+        stdout, _ = await proc.communicate()
+        raw = stdout.decode("utf-8", errors="replace")
+        return {"lines": raw.splitlines(), "service": service}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/logs/stream")
+async def stream_logs(service: str = "backend"):
+    log_path = LOG_PATHS.get(service)
+    if not log_path:
+        raise HTTPException(status_code=400, detail="Unknown service")
+
+    async def event_generator():
+        proc = None
+        try:
+            args = ["tail", "-n", "100", "-f", str(log_path)]
+            proc = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            while True:
+                line = await proc.stdout.readline()
+                if not line:
+                    await asyncio.sleep(0.5)
+                    continue
+                text = line.decode("utf-8", errors="replace").rstrip("\n")
+                yield f"data: {json.dumps(text)}\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            if proc and proc.returncode is None:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.post("/api/wa-logout")

@@ -74,6 +74,7 @@
         <button onclick="showTab('groups')" id="tab-btn-groups" class="tab-btn" data-i18n="tab_groups">Groups</button>
         <button onclick="showTab('actions')" id="tab-btn-actions" class="tab-btn" data-i18n="tab_actions">Actions</button>
         <button onclick="showTab('settings')" id="tab-btn-settings" class="tab-btn" data-i18n="tab_settings">Settings</button>
+        <button onclick="showTab('logs')" id="tab-btn-logs" class="tab-btn" data-i18n="tab_logs">Logs</button>
       </div>
     </div>
   </nav>
@@ -694,6 +695,25 @@
       </div>
     </div>
 
+    <!-- Logs tab -->
+    <div id="tab-logs" class="hidden">
+      <div class="flex items-center gap-3 mb-4">
+        <div class="flex gap-2">
+          <button onclick="setLogService('backend')" id="log-btn-backend" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 text-white transition-colors">Backend</button>
+          <button onclick="setLogService('bot')" id="log-btn-bot" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors">Bot</button>
+        </div>
+        <label class="flex items-center gap-1.5 text-xs text-gray-500 ms-2 cursor-pointer select-none">
+          <input type="checkbox" id="log-live" class="accent-emerald-600" onchange="toggleLogLive()" />
+          <span data-i18n="log_live">Live</span>
+        </label>
+        <button onclick="loadLogs()" class="ms-auto px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors" data-i18n="log_refresh">Refresh</button>
+        <button onclick="copyLogs()" class="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors" data-i18n="log_copy">Copy</button>
+      </div>
+      <div id="log-output" class="bg-gray-950 text-gray-200 rounded-2xl p-4 font-mono text-xs leading-5 overflow-auto" style="height:70vh; white-space:pre-wrap; word-break:break-all;">
+        <span class="text-gray-500" data-i18n="log_loading">Loading…</span>
+      </div>
+    </div>
+
   </main>
 
   <script>
@@ -747,7 +767,7 @@
     document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
 
     // ── Tab switching ────────────────────────────────────────────────────────────
-    const TABS = ['activity', 'kids', 'groups', 'actions', 'settings'];
+    const TABS = ['activity', 'kids', 'groups', 'actions', 'settings', 'logs'];
     function showTab(tab) {
       TABS.forEach(t => {
         document.getElementById(`tab-${t}`).classList.toggle('hidden', t !== tab);
@@ -758,6 +778,8 @@
       if (tab === 'groups') { loadKids(); refreshGroups(); }
       if (tab === 'actions') loadSettings();
       if (tab === 'settings') loadAppSettings();
+      if (tab === 'logs') loadLogs();
+      if (tab !== 'logs') stopLogStream();
     }
 
     function toggleAccordion(id) {
@@ -838,6 +860,14 @@
         : `<span class="${cls} bg-gray-100 text-gray-400">${t('badge_no_match')}</span>`;
     }
 
+    function _buildActions(row) {
+      const parts = [];
+      if (row.forwarded) parts.push(`<span class="text-emerald-600">${t('action_forwarded')}</span>`);
+      if (row.saved_to_gp) parts.push(`<span class="text-teal-500">${t('action_gp')}</span>`);
+      if (row.matched_photo_path) parts.push(`<span class="text-gray-400">${t('action_folder')}</span>`);
+      return parts.length ? `<div class="flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5 text-xs">${parts.join('')}</div>` : '';
+    }
+
     function buildTableRow(row) {
       const relTime = relativeTime(row.timestamp);
       const badge = _buildBadge(row, false);
@@ -861,7 +891,7 @@
         <td class="px-5 py-3 text-gray-700 font-medium">${row.sender}</td>
         <td class="px-5 py-3 text-gray-400 text-xs">${row.group_name}</td>
         <td class="px-5 py-3 text-gray-600">${row.faces_detected}</td>
-        <td class="px-5 py-3" id="badge-cell-${row.id}">${badge}</td>
+        <td class="px-5 py-3" id="badge-cell-${row.id}">${badge}${_buildActions(row)}</td>
         <td class="px-5 py-3 text-gray-600">${conf}</td>
         <td class="px-3 py-2">${runBtn}</td>
       </tr>`;
@@ -889,6 +919,7 @@
             <span class="text-xs text-gray-400" title="${new Date(row.timestamp).toLocaleString()}">${relTime}</span>
             <span class="text-xs text-gray-400">${conf}</span>
           </div>
+          ${_buildActions(row)}
           ${runBtn}
         </div>
       </div>`;
@@ -1864,6 +1895,66 @@
     }
 
     setInterval(() => { if (!document.getElementById('tab-activity').classList.contains('hidden')) { loadStats(); loadActivity(); } }, 30000);
+
+    // ── Logs tab ──────────────────────────────────────────────────────────────
+    let _logService = 'backend';
+    let _logEvtSource = null;
+
+    function setLogService(svc) {
+      _logService = svc;
+      document.getElementById('log-btn-backend').className = svc === 'backend'
+        ? 'px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 text-white transition-colors'
+        : 'px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors';
+      document.getElementById('log-btn-bot').className = svc === 'bot'
+        ? 'px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 text-white transition-colors'
+        : 'px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors';
+      if (document.getElementById('log-live').checked) {
+        startLogStream();
+      } else {
+        loadLogs();
+      }
+    }
+
+    async function loadLogs() {
+      stopLogStream();
+      const el = document.getElementById('log-output');
+      el.textContent = 'Loading…';
+      try {
+        const r = await fetch(`/api/logs?service=${_logService}&lines=300`);
+        const d = await r.json();
+        el.textContent = d.lines.join('\n') || '(no log output)';
+        el.scrollTop = el.scrollHeight;
+      } catch (e) {
+        el.textContent = 'Failed to load logs.';
+      }
+    }
+
+    function startLogStream() {
+      stopLogStream();
+      const el = document.getElementById('log-output');
+      el.textContent = '';
+      _logEvtSource = new EventSource(`/api/logs/stream?service=${_logService}`);
+      _logEvtSource.onmessage = e => {
+        const line = JSON.parse(e.data);
+        el.textContent += line + '\n';
+        el.scrollTop = el.scrollHeight;
+      };
+      _logEvtSource.onerror = () => { el.textContent += '\n[stream error — reconnecting…]\n'; };
+    }
+
+    function stopLogStream() {
+      if (_logEvtSource) { _logEvtSource.close(); _logEvtSource = null; }
+    }
+
+    function toggleLogLive() {
+      if (document.getElementById('log-live').checked) startLogStream();
+      else loadLogs();
+    }
+
+    function copyLogs() {
+      const text = document.getElementById('log-output').textContent;
+      navigator.clipboard.writeText(text).then(() => showToast('Copied to clipboard', 'success'));
+    }
   </script>
   <script src="/static/dark.js"></script>
   <script src="/static/pin_lock.js?v=2"></script>

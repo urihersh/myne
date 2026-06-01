@@ -8,4 +8,4 @@ RUN npm ci --omit=dev
 COPY bot/ .
 
 EXPOSE 3001
-CMD ["node", "bot.js"]
+CMD ["sh", "-c", "mkdir -p /app/data/logs && node bot.js 2>&1 | tee -a /app/data/logs/bot.log"]

@@ -39,6 +39,7 @@ class ActivityLog(Base):
     matched = Column(Boolean, default=False)
     confidence = Column(Float, default=0.0)
     forwarded = Column(Boolean, default=False)
+    saved_to_gp = Column(Boolean, default=False)
     kid_names = Column(String, default="")
     matched_photo_path = Column(String, default="")
     thumbnail_filename = Column(String, default="")
@@ -97,6 +98,7 @@ def init_db() -> None:
         _add_column(conn, "activity_log", "matched_photo_path", "TEXT DEFAULT ''")
         _add_column(conn, "activity_log", "thumbnail_filename", "TEXT DEFAULT ''")
         _add_column(conn, "activity_log", "manually_matched",  "INTEGER DEFAULT 0")
+        _add_column(conn, "activity_log", "saved_to_gp",       "INTEGER DEFAULT 0")
 
 
 # ── Settings helpers ───────────────────────────────────────────────────────────
@@ -135,6 +137,7 @@ def log_activity(
     kid_names: str = "",
     matched_photo_path: str = "",
     thumbnail_filename: str = "",
+    saved_to_gp: bool = False,
 ) -> int:
     db = SessionLocal()
     try:
@@ -146,6 +149,7 @@ def log_activity(
             matched=matched,
             confidence=confidence,
             forwarded=forwarded,
+            saved_to_gp=saved_to_gp,
             kid_names=kid_names,
             matched_photo_path=matched_photo_path,
             thumbnail_filename=thumbnail_filename,
@@ -192,6 +196,7 @@ def get_activity_log(
                 "matched": r.matched,
                 "confidence": r.confidence,
                 "forwarded": r.forwarded,
+                "saved_to_gp": bool(r.saved_to_gp),
                 "kid_names": r.kid_names or "",
                 "matched_photo_path": r.matched_photo_path or "",
                 "thumbnail_filename": r.thumbnail_filename or "",
