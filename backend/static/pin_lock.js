@@ -55,7 +55,7 @@ window.__ptShowPin = function () {
         ${Array(6).fill('<span class="dot" style="width:14px;height:14px;border-radius:50%;background:#334155;transition:background .15s"></span>').join('')}
       </div>
       <p id="pin-error" style="color:#f87171;font-size:13px;min-height:18px;margin:0 0 16px;opacity:0;transition:opacity .2s"></p>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;direction:ltr">
         ${[7,8,9,4,5,6,1,2,3,'',0,'⌫'].map(k => `
           <button data-key="${k}" style="
             padding:16px 0;border-radius:14px;border:none;cursor:${k===''?'default':'pointer'};
