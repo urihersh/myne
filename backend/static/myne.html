@@ -868,16 +868,30 @@
       return parts.length ? `<div class="flex flex-wrap gap-x-2 gap-y-0.5 mt-0.5 text-xs">${parts.join('')}</div>` : '';
     }
 
+    const _VIDEO_EXTS = new Set(['.mp4', '.mov', '.avi', '.mkv', '.webm']);
+    function _isVideo(row) {
+      const ext = (row.photo_filename || '').split('.').pop().toLowerCase();
+      return _VIDEO_EXTS.has('.' + ext);
+    }
+    function _mediaIcon(row) {
+      return _isVideo(row)
+        ? '<span style="position:absolute;bottom:2px;left:2px;font-size:11px;line-height:1;background:rgba(0,0,0,.55);border-radius:4px;padding:1px 3px">🎬</span>'
+        : '';
+    }
+
     function buildTableRow(row) {
       const relTime = relativeTime(row.timestamp);
       const badge = _buildBadge(row, false);
       const conf = row.confidence > 0 ? `${(row.confidence * 100).toFixed(0)}%` : '-';
       const thumb = row.thumbnail_filename
-        ? `<img src="/api/activity/thumbnail/${encodeURIComponent(row.thumbnail_filename)}"
+        ? `<div style="position:relative;width:40px;height:40px">
+             <img src="/api/activity/thumbnail/${encodeURIComponent(row.thumbnail_filename)}"
                 class="w-10 h-10 rounded-lg object-cover cursor-pointer ring-1 ring-gray-100 hover:ring-emerald-400 transition-all"
                 onclick="openLightbox('/api/activity/thumbnail/${encodeURIComponent(row.thumbnail_filename)}')"
-                onerror="this.outerHTML='<div class=\\'w-10 h-10 rounded-lg bg-gray-100\\'></div>'" loading="lazy" />`
-        : '<div class="w-10 h-10 rounded-lg bg-gray-50"></div>';
+                onerror="this.outerHTML='<div class=\\'w-10 h-10 rounded-lg bg-gray-100\\'></div>'" loading="lazy" />
+             ${_mediaIcon(row)}
+           </div>`
+        : `<div style="position:relative;width:40px;height:40px"><div class="w-10 h-10 rounded-lg bg-gray-50"></div>${_mediaIcon(row)}</div>`;
       const runBtn = row.has_original
         ? `<button onclick="rerunActions(${row.id}, this)" title="${row.matched ? 'Re-forward, re-upload to Google Photos and save to folder' : 'Forward, upload to Google Photos and save to folder'}"
               class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-gray-400 hover:bg-emerald-50 hover:text-emerald-600 transition-colors whitespace-nowrap">
@@ -911,8 +925,11 @@
               ${row.matched ? t('resend') : t('send')}
             </button>`
         : '';
+      const videoIconGrid = _isVideo(row)
+        ? '<span style="position:absolute;bottom:6px;left:6px;font-size:12px;line-height:1;background:rgba(0,0,0,.55);border-radius:4px;padding:2px 4px">🎬</span>'
+        : '';
       return `<div class="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100">
-        <div class="act-card-img relative">${thumbEl}<div class="absolute top-2 right-2" id="badge-cell-${row.id}">${badge}</div></div>
+        <div class="act-card-img relative">${thumbEl}<div class="absolute top-2 right-2" id="badge-cell-${row.id}">${badge}</div>${videoIconGrid}</div>
         <div class="px-3 py-2">
           <p class="text-xs font-medium text-gray-700 truncate" title="${row.group_name}">${row.group_name}</p>
           <div class="flex items-center justify-between mt-0.5">
