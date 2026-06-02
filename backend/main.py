@@ -6,6 +6,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 import asyncio
 import ipaddress
+import logging
 import os
 import re
 import json
@@ -15,6 +16,7 @@ import httpx
 import aiofiles
 import numpy as np
 import cv2
+from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
@@ -33,6 +35,12 @@ DATA_DIR = Path(os.getenv("DATA_DIR", str(Path(__file__).parent.parent / "data")
 THUMBNAILS_DIR = DATA_DIR / "thumbnails"
 ORIGINALS_DIR = DATA_DIR / "originals"
 BOT_API_URL = os.getenv("BOT_API_URL", "http://localhost:3001")
+LOGS_DIR = DATA_DIR / "logs"
+LOG_PATHS = {
+    "backend": LOGS_DIR / "backend.log",
+    "bot": LOGS_DIR / "bot.log",
+}
+_LOG_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
 _GENERIC_FILENAMES = {"photo.jpg", "video.mp4", "image.jpg"}
 
 
@@ -266,6 +274,7 @@ async def lifespan(app: FastAPI):
     init_db()
     for subdir in ["enrolled", "embeddings", "temp", "thumbnails", "originals", "logs"]:
         (DATA_DIR / subdir).mkdir(parents=True, exist_ok=True)
+    _setup_file_logging(LOG_PATHS["backend"])
     _rotate_logs()
     app.state.face_service = FaceService(str(DATA_DIR))
     asyncio.get_running_loop().run_in_executor(None, warm_up_model)
@@ -554,12 +563,17 @@ async def rerun_actions(activity_id: int):
     return result
 
 
-LOGS_DIR = DATA_DIR / "logs"
-LOG_PATHS = {
-    "backend": LOGS_DIR / "backend.log",
-    "bot": LOGS_DIR / "bot.log",
-}
-_LOG_MAX_BYTES = 10 * 1024 * 1024  # 10 MB
+def _setup_file_logging(log_path: Path) -> None:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    handler = RotatingFileHandler(str(log_path), maxBytes=5 * 1024 * 1024, backupCount=1,
+                                  encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    for name in ("uvicorn", "uvicorn.access", "uvicorn.error", ""):
+        lgr = logging.getLogger(name)
+        if not any(isinstance(h, RotatingFileHandler) and h.baseFilename == handler.baseFilename
+                   for h in lgr.handlers):
+            lgr.addHandler(handler)
+
 
 def _rotate_logs():
     for p in LOG_PATHS.values():
