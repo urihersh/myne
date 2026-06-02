@@ -16,7 +16,6 @@ import httpx
 import aiofiles
 import numpy as np
 import cv2
-from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
@@ -574,38 +573,41 @@ async def rerun_actions(activity_id: int):
     return result
 
 
-class _TeeWriter:
-    """Writes to both the original stream and a log file."""
-    def __init__(self, original, log_file):
-        self._orig = original
-        self._file = log_file
-    def write(self, text):
-        self._orig.write(text)
-        try:
-            self._file.write(text)
-            self._file.flush()
-        except Exception:
-            pass
-    def flush(self):
-        self._orig.flush()
-    def __getattr__(self, name):
-        return getattr(self._orig, name)
+_log_file_handle = None
 
 
 def _setup_file_logging(log_path: Path) -> None:
     import sys
+    global _log_file_handle
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_file = open(str(log_path), "a", encoding="utf-8", buffering=1)
-    sys.stdout = _TeeWriter(sys.__stdout__, log_file)
-    sys.stderr = _TeeWriter(sys.__stderr__, log_file)
-    handler = RotatingFileHandler(str(log_path), maxBytes=5 * 1024 * 1024, backupCount=1,
-                                  encoding="utf-8")
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-    for name in ("uvicorn", "uvicorn.access", "uvicorn.error", ""):
+    _log_file_handle = open(str(log_path), "a", encoding="utf-8", buffering=1)
+
+    orig_stdout_write = sys.__stdout__.write
+    orig_stderr_write = sys.__stderr__.write
+
+    def _tee_stdout(text):
+        orig_stdout_write(text)
+        try:
+            _log_file_handle.write(text)
+        except Exception:
+            pass
+
+    def _tee_stderr(text):
+        orig_stderr_write(text)
+        try:
+            _log_file_handle.write(text)
+        except Exception:
+            pass
+
+    sys.stdout.write = _tee_stdout
+    sys.stderr.write = _tee_stderr
+
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+    for name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
         lgr = logging.getLogger(name)
-        if not any(isinstance(h, RotatingFileHandler) and h.baseFilename == handler.baseFilename
-                   for h in lgr.handlers):
-            lgr.addHandler(handler)
+        fh = logging.FileHandler(str(log_path), encoding="utf-8")
+        fh.setFormatter(fmt)
+        lgr.addHandler(fh)
 
 
 def _rotate_logs():
@@ -617,23 +619,33 @@ def _rotate_logs():
         except Exception:
             pass
 
+
+def _tail_bytes(path: Path, n_lines: int) -> list[str]:
+    """Return last n_lines from a file using pure Python — no external tools needed."""
+    try:
+        with open(str(path), "rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            chunk = min(size, n_lines * 200)
+            f.seek(max(0, size - chunk))
+            data = f.read()
+        lines = data.decode("utf-8", errors="replace").splitlines()
+        return lines[-n_lines:]
+    except Exception:
+        return []
+
+
 @app.get("/api/logs")
-async def get_logs(service: str = "backend", lines: int = 200):
+async def get_logs(service: str = "backend", lines: int = 300):
     log_path = LOG_PATHS.get(service)
     if not log_path:
         raise HTTPException(status_code=400, detail="Unknown service")
     if not log_path.exists():
         return {"lines": [], "service": service}
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "tail", f"-{lines}", str(log_path),
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
-        )
-        stdout, _ = await proc.communicate()
-        raw = stdout.decode("utf-8", errors="replace")
-        return {"lines": raw.splitlines(), "service": service}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    result = await asyncio.get_running_loop().run_in_executor(
+        None, _tail_bytes, log_path, lines
+    )
+    return {"lines": result, "service": service}
 
 
 @app.get("/api/logs/stream")
@@ -643,29 +655,32 @@ async def stream_logs(service: str = "backend"):
         raise HTTPException(status_code=400, detail="Unknown service")
 
     async def event_generator():
-        proc = None
         try:
-            args = ["tail", "-n", "100", "-f", str(log_path)]
-            proc = await asyncio.create_subprocess_exec(
-                *args,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
+            # Send last 100 lines first
+            initial = await asyncio.get_running_loop().run_in_executor(
+                None, _tail_bytes, log_path, 100
             )
+            for line in initial:
+                yield f"data: {json.dumps(line)}\n\n"
+
+            # Then follow new lines
+            file_size = log_path.stat().st_size if log_path.exists() else 0
             while True:
-                line = await proc.stdout.readline()
-                if not line:
-                    await asyncio.sleep(0.5)
+                await asyncio.sleep(1)
+                if not log_path.exists():
                     continue
-                text = line.decode("utf-8", errors="replace").rstrip("\n")
-                yield f"data: {json.dumps(text)}\n\n"
+                new_size = log_path.stat().st_size
+                if new_size > file_size:
+                    with open(str(log_path), "rb") as f:
+                        f.seek(file_size)
+                        new_data = f.read(new_size - file_size)
+                    file_size = new_size
+                    for line in new_data.decode("utf-8", errors="replace").splitlines():
+                        yield f"data: {json.dumps(line)}\n\n"
+                elif new_size < file_size:
+                    file_size = new_size
         except asyncio.CancelledError:
             pass
-        finally:
-            if proc and proc.returncode is None:
-                try:
-                    proc.terminate()
-                except Exception:
-                    pass
 
     return StreamingResponse(event_generator(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
