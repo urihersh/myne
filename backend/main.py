@@ -294,6 +294,17 @@ app = FastAPI(title="Myne", lifespan=lifespan)
 
 
 @app.middleware("http")
+async def no_cache_middleware(request: Request, call_next):
+    response = await call_next(request)
+    path = request.url.path
+    if path.endswith((".html", ".js")) or path in ("/", "/onboarding", "/settings"):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
+
+@app.middleware("http")
 async def auth_middleware(request: Request, call_next):
     path = request.url.path
     if not path.startswith("/api/") or path.startswith("/api/auth/"):
