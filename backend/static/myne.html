@@ -1911,8 +1911,8 @@
     setInterval(() => { if (!document.getElementById('tab-activity').classList.contains('hidden')) { loadStats(); loadActivity(); } }, 30000);
 
     // ── Logs tab ──────────────────────────────────────────────────────────────
-    let _logService = 'backend';
-    let _logEvtSource = null;
+    var _logService = 'backend';
+    var _logEvtSource = null;
 
     function setLogService(svc) {
       _logService = svc;
