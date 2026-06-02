@@ -8,8 +8,8 @@ const TRANSLATIONS = {
     tab_groups: 'Groups',
     tab_logs: 'System Log',
     log_live: 'Live',
-    log_refresh: 'Refresh',
-    log_copy: 'Copy',
+    log_refresh: 'Refresh Log',
+    log_copy: 'Copy to Clipboard',
     log_loading: 'Loading…',
     // Stats
     matched_today: 'matched today',
@@ -258,8 +258,8 @@ const TRANSLATIONS = {
     tab_groups: 'קבוצות',
     tab_logs: 'יומן מערכת',
     log_live: 'בזמן אמת',
-    log_refresh: 'רענן',
-    log_copy: 'העתק',
+    log_refresh: 'רענן יומן',
+    log_copy: 'העתק ללוח',
     log_loading: 'טוען…',
     // Stats
     matched_today: 'זוהו היום',
