@@ -577,37 +577,36 @@ _log_file_handle = None
 
 
 def _setup_file_logging(log_path: Path) -> None:
-    import sys
+    import builtins
     global _log_file_handle
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    _log_file_handle = open(str(log_path), "a", encoding="utf-8", buffering=1)
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        _log_file_handle = open(str(log_path), "a", encoding="utf-8", buffering=1)
 
-    orig_stdout_write = sys.__stdout__.write
-    orig_stderr_write = sys.__stderr__.write
+        # Intercept all print() calls — works on any Python runtime
+        _orig_print = builtins.print
+        def _tee_print(*args, **kwargs):
+            _orig_print(*args, **kwargs)
+            if kwargs.get("file") is None:
+                try:
+                    sep = kwargs.get("sep", " ")
+                    end = kwargs.get("end", "\n")
+                    _log_file_handle.write(sep.join(str(a) for a in args) + end)
+                except Exception:
+                    pass
+        builtins.print = _tee_print
 
-    def _tee_stdout(text):
-        orig_stdout_write(text)
-        try:
-            _log_file_handle.write(text)
-        except Exception:
-            pass
+        # Also capture uvicorn's logging-based access/error logs
+        fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+        for name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
+            lgr = logging.getLogger(name)
+            fh = logging.FileHandler(str(log_path), encoding="utf-8")
+            fh.setFormatter(fmt)
+            lgr.addHandler(fh)
 
-    def _tee_stderr(text):
-        orig_stderr_write(text)
-        try:
-            _log_file_handle.write(text)
-        except Exception:
-            pass
-
-    sys.stdout.write = _tee_stdout
-    sys.stderr.write = _tee_stderr
-
-    fmt = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
-    for name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
-        lgr = logging.getLogger(name)
-        fh = logging.FileHandler(str(log_path), encoding="utf-8")
-        fh.setFormatter(fmt)
-        lgr.addHandler(fh)
+        _log_file_handle.write(f"=== Backend started at {datetime.utcnow().isoformat()}Z ===\n")
+    except Exception as e:
+        logging.getLogger("uvicorn.error").warning(f"[backend] Could not set up file logging: {e}")
 
 
 def _rotate_logs():
