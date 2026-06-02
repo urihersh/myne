@@ -634,6 +634,21 @@ def _tail_bytes(path: Path, n_lines: int) -> list[str]:
         return []
 
 
+@app.get("/api/logs/debug")
+async def debug_logs():
+    result = {"data_dir": str(DATA_DIR), "logs_dir": str(LOGS_DIR)}
+    for svc, p in LOG_PATHS.items():
+        result[svc] = {
+            "path": str(p),
+            "exists": p.exists(),
+            "size": p.stat().st_size if p.exists() else -1,
+            "first_100": p.read_text(encoding="utf-8", errors="replace")[:200] if p.exists() else None,
+        }
+    result["logs_dir_exists"] = LOGS_DIR.exists()
+    result["logs_dir_contents"] = [str(x) for x in LOGS_DIR.iterdir()] if LOGS_DIR.exists() else []
+    return result
+
+
 @app.get("/api/logs")
 async def get_logs(service: str = "backend", lines: int = 300):
     log_path = LOG_PATHS.get(service)
