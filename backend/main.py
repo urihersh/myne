@@ -574,8 +574,30 @@ async def rerun_actions(activity_id: int):
     return result
 
 
+class _TeeWriter:
+    """Writes to both the original stream and a log file."""
+    def __init__(self, original, log_file):
+        self._orig = original
+        self._file = log_file
+    def write(self, text):
+        self._orig.write(text)
+        try:
+            self._file.write(text)
+            self._file.flush()
+        except Exception:
+            pass
+    def flush(self):
+        self._orig.flush()
+    def __getattr__(self, name):
+        return getattr(self._orig, name)
+
+
 def _setup_file_logging(log_path: Path) -> None:
+    import sys
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_file = open(str(log_path), "a", encoding="utf-8", buffering=1)
+    sys.stdout = _TeeWriter(sys.__stdout__, log_file)
+    sys.stderr = _TeeWriter(sys.__stderr__, log_file)
     handler = RotatingFileHandler(str(log_path), maxBytes=5 * 1024 * 1024, backupCount=1,
                                   encoding="utf-8")
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))

@@ -28,6 +28,20 @@ process.stdout.write = (chunk, ...args) => {
   return _origWrite(chunk, ...args);
 };
 
+// Tee stdout/stderr to data/logs/bot.log so the web UI can read it.
+(function setupFileLog() {
+  const DATA_DIR_EARLY = process.env.DATA_DIR || require('path').join(__dirname, '..', 'data');
+  const logsDir = require('path').join(DATA_DIR_EARLY, 'logs');
+  try { require('fs').mkdirSync(logsDir, { recursive: true }); } catch (_) {}
+  const logStream = require('fs').createWriteStream(
+    require('path').join(logsDir, 'bot.log'), { flags: 'a' }
+  );
+  const _ow = process.stdout.write.bind(process.stdout);
+  const _oe = process.stderr.write.bind(process.stderr);
+  process.stdout.write = (chunk, enc, cb) => { logStream.write(chunk); return _ow(chunk, enc, cb); };
+  process.stderr.write = (chunk, enc, cb) => { logStream.write(chunk); return _oe(chunk, enc, cb); };
+})();
+
 const {
   makeWASocket,
   useMultiFileAuthState,
