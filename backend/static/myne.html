@@ -1176,6 +1176,13 @@
       const kidId = document.getElementById('test-kid-select').value;
       const kidIds = kidId || testKids.map(k => k.id).join(',');
       if (!kidIds) { alert(t('no_kids_enrolled')); return; }
+      try {
+        const ms = await (await fetch('/api/model-status')).json();
+        if (ms.status !== 'ready') {
+          alert(ms.status === 'loading' ? t('model_loading') : (t('model_error') + (ms.error ? '\n' + ms.error : '')));
+          return;
+        }
+      } catch (_) {}
       const shouldForward = document.getElementById('test-forward').checked;
       const btn = document.getElementById('test-run-btn');
       const resultsList = document.getElementById('test-results-list');
