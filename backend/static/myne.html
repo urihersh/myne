@@ -1112,7 +1112,9 @@
         </div>`).join('');
     }
 
-    function buildResultCard(filename, d, isVideo) {
+    var _testFileStore = {};
+
+    function buildResultCard(filename, d, isVideo, fileKey, kidIds) {
       const icon = isVideo ? '🎬' : '📷';
       const name = filename.length > 28 ? filename.slice(0, 25) + '…' : filename;
       let body = '';
@@ -1137,14 +1139,42 @@
       const badge = matched
         ? `<span class="shrink-0 text-xs font-semibold text-emerald-600">${t('match_found')}</span>`
         : `<span class="shrink-0 text-xs text-gray-400">${t('no_match')}</span>`;
+      const forceBtn = !matched && !d.error && fileKey
+        ? `<div class="px-3 pb-2"><button onclick="forceSendTestFile('${fileKey}','${kidIds}',${isVideo},this)"
+              class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-orange-600 bg-orange-50 hover:bg-orange-100 transition-colors">
+              <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/></svg>
+              ${t('force_send')}
+            </button></div>`
+        : '';
       return `<div class="border ${wrapCls} rounded-xl overflow-hidden">
         <div class="flex items-center gap-2 px-3 py-2 border-b ${hdrCls}">
           <span class="shrink-0">${icon}</span>
           <span class="text-xs font-medium truncate flex-1" title="${filename}">${name}</span>
           ${badge}
         </div>
-        ${body}
+        ${body}${forceBtn}
       </div>`;
+    }
+
+    async function forceSendTestFile(fileKey, kidIds, isVideo, btn) {
+      const file = _testFileStore[fileKey];
+      if (!file) return;
+      btn.disabled = true;
+      btn.textContent = '⏳';
+      const form = new FormData();
+      form.append('file', file);
+      const ep = isVideo
+        ? `/api/analyze-video?kid_ids=${encodeURIComponent(kidIds)}&sender=manual&forward=true&force_actions=true`
+        : `/api/analyze?kid_ids=${encodeURIComponent(kidIds)}&sender=manual&forward=true&force_actions=true`;
+      try {
+        const r = await fetch(ep, { method: 'POST', body: form });
+        const d = await r.json();
+        btn.textContent = (d.forwarded || d.saved_to_gp || d.saved_to_folder) ? '✓ ' + t('send') : t('test_failed');
+        loadStats(); loadActivity();
+      } catch (_) {
+        btn.textContent = t('test_failed');
+        btn.disabled = false;
+      }
     }
 
     function setTestProgress(done, total, finished = false) {
@@ -1202,6 +1232,8 @@
         if (testFiles.length > 1) setTestProgress(i, testFiles.length);
         const file = testFiles[i];
         const isVideo = file.type.startsWith('video/');
+        const fileKey = 'f_' + Date.now() + '_' + i;
+        _testFileStore[fileKey] = file;
         const form = new FormData();
         form.append('file', file);
         try {
@@ -1210,7 +1242,7 @@
             : `/api/analyze?kid_ids=${encodeURIComponent(kidIds)}&forward=${shouldForward}&is_test=true`;
           const r = await fetch(ep, { method: 'POST', body: form });
           const d = await r.json();
-          resultsList.insertAdjacentHTML('beforeend', buildResultCard(file.name, d, isVideo));
+          resultsList.insertAdjacentHTML('beforeend', buildResultCard(file.name, d, isVideo, fileKey, kidIds));
           resultsList.lastElementChild.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
           loadStats(); loadActivity();
         } catch (_) {

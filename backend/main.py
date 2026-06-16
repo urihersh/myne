@@ -369,7 +369,8 @@ async def root():
 @app.post("/api/analyze")
 async def analyze_photo(request: Request, file: UploadFile,
                         group_id: str = "", group_name: str = "", sender: str = "unknown",
-                        kid_ids: str = "", forward: bool = False, is_test: bool = False):
+                        kid_ids: str = "", forward: bool = False, is_test: bool = False,
+                        force_actions: bool = False):
     """Called by the WhatsApp bot (or test panel) when a photo arrives."""
     file_bytes = await file.read()
     temp_path = DATA_DIR / "temp" / f"{uuid.uuid4()}.jpg"
@@ -390,6 +391,12 @@ async def analyze_photo(request: Request, file: UploadFile,
             None, face_service.analyze_photo, str(temp_path), kid_id_list, threshold
         )
         matched_kids, best_confidence = _enrich_matches(result, kid_names)
+
+        if force_actions:
+            result["matched"] = True
+            if not matched_kids:
+                matched_kids = [{"kid_id": k, "kid_name": kid_names.get(k, k)} for k in kid_id_list]
+            forward = True
 
         matched_photo_path = ""
         thumbnail_filename = ""
@@ -434,6 +441,7 @@ async def analyze_photo(request: Request, file: UploadFile,
                 kid_names=", ".join(m["kid_name"] for m in matched_kids),
                 matched_photo_path=matched_photo_path,
                 thumbnail_filename=thumbnail_filename,
+                manually_matched=force_actions,
             )
             _save_original(file_bytes, row_id)
 
@@ -445,7 +453,8 @@ async def analyze_photo(request: Request, file: UploadFile,
 @app.post("/api/analyze-video")
 async def analyze_video(request: Request, file: UploadFile,
                         group_id: str = "", group_name: str = "", sender: str = "unknown",
-                        kid_ids: str = "", forward: bool = False, is_test: bool = False):
+                        kid_ids: str = "", forward: bool = False, is_test: bool = False,
+                        force_actions: bool = False):
     """Called by the WhatsApp bot when a video arrives in a watched group."""
     file_bytes = await file.read()
     suffix = Path(file.filename or "video.mp4").suffix or ".mp4"
@@ -468,6 +477,12 @@ async def analyze_video(request: Request, file: UploadFile,
         )
         best_frame_bytes = result.pop("best_frame_bytes", None) or _extract_first_frame(str(temp_path))
         matched_kids, best_confidence = _enrich_matches(result, kid_names)
+
+        if force_actions:
+            result["matched"] = True
+            if not matched_kids:
+                matched_kids = [{"kid_id": k, "kid_name": kid_names.get(k, k)} for k in kid_id_list]
+            forward = True
 
         matched_photo_path = ""
         thumbnail_filename = ""
@@ -511,6 +526,7 @@ async def analyze_video(request: Request, file: UploadFile,
                 kid_names=", ".join(m["kid_name"] for m in matched_kids),
                 matched_photo_path=matched_photo_path,
                 thumbnail_filename=thumbnail_filename,
+                manually_matched=force_actions,
             )
             _save_original(file_bytes, row_id, suffix)
         return result

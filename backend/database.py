@@ -138,6 +138,7 @@ def log_activity(
     matched_photo_path: str = "",
     thumbnail_filename: str = "",
     saved_to_gp: bool = False,
+    manually_matched: bool = False,
 ) -> int:
     db = SessionLocal()
     try:
@@ -153,6 +154,7 @@ def log_activity(
             kid_names=kid_names,
             matched_photo_path=matched_photo_path,
             thumbnail_filename=thumbnail_filename,
+            manually_matched=manually_matched,
         )
         db.add(row)
         db.commit()
