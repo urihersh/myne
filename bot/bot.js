@@ -315,7 +315,7 @@ async function connect() {
         }
 
         const endpoint = isVideo ? 'analyze-video' : 'analyze';
-        const timeout = isVideo ? 120000 : 90000;
+        const timeout = isVideo ? 300000 : 90000;
         await analysisSem.acquire();
         const res = await axios.post(
           `${PYTHON_API_URL}/api/${endpoint}?group_id=${encodeURIComponent(groupId)}&group_name=${encodeURIComponent(groupName)}&sender=${encodeURIComponent(senderName)}`,
