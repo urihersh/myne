@@ -177,7 +177,9 @@ const TRANSLATIONS = {
     groups_subtitle_n: '{n} groups monitored · search to add or remove',
     // WA status detail
     wa_session_disconnected: 'Disconnected — your phone is receiving notifications. Click Connect to resume.',
+    wa_session_expired: 'Session expired. Click below to unlink and scan a new QR code.',
     wa_not_linked: 'Not linked. Scan the QR code below to connect.',
+    sign_out_scan_qr: 'Sign out & scan QR',
     // Test panel
     analyzing: 'Analyzing…',
     no_faces_in_frame: 'No faces in any sampled frame',
@@ -431,7 +433,9 @@ const TRANSLATIONS = {
     groups_subtitle_n: '{n} קבוצות מנוטרות · חפש להוסיף או להסיר',
     // WA status detail
     wa_session_disconnected: 'מנותק — הטלפון מקבל התראות. לחץ חבר כדי להמשיך.',
+    wa_session_expired: 'החיבור פג. לחץ למטה כדי לנתק ולסרוק קוד QR חדש.',
     wa_not_linked: 'לא מקושר. סרוק את קוד ה-QR כדי להתחבר.',
+    sign_out_scan_qr: 'נתק וסרוק QR',
     // Test panel
     analyzing: 'מנתח…',
     no_faces_in_frame: 'לא זוהו פנים באף פריים',

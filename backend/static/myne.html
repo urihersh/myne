@@ -482,6 +482,9 @@
                     class="px-3 py-1.5 text-xs font-medium text-teal-700 bg-teal-50 hover:bg-teal-100 rounded-lg transition-colors" data-i18n="connect">
               Connect
             </button>
+            <button onclick="waLogout()" id="wa-relink-btn" class="hidden px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded-lg transition-colors" data-i18n="sign_out_scan_qr">
+              Sign out & scan QR
+            </button>
           </div>
           <div id="qr-section" class="text-center hidden">
             <div id="qr-loading" class="py-6 text-gray-400 text-sm" data-i18n="waiting_qr">Waiting for QR code…</div>
@@ -1169,7 +1172,14 @@
       try {
         const r = await fetch(ep, { method: 'POST', body: form });
         const d = await r.json();
-        btn.textContent = (d.forwarded || d.saved_to_gp || d.saved_to_folder) ? '✓ ' + t('send') : t('test_failed');
+        const results = [];
+        if (d.forwarded) results.push('↗ WA');
+        if (d.saved_to_gp) results.push('↑ GP');
+        if (d.saved_to_folder) results.push('📁');
+        btn.textContent = results.length ? '✓ ' + results.join(' ') : t('test_failed');
+        btn.title = results.length
+          ? `Sent to: ${results.join(', ')}`
+          : (d.forward_error ? `WhatsApp forward failed: ${d.forward_error}` : 'All actions failed');
         loadStats(); loadActivity();
       } catch (_) {
         btn.textContent = t('test_failed');
@@ -1804,10 +1814,14 @@
           document.getElementById('wa-connected').classList.add('hidden');
           document.getElementById('wa-disconnected').classList.remove('hidden');
           if (d.sessionExists) {
-            document.getElementById('wa-disconnected-msg').textContent = t('wa_session_disconnected');
+            document.getElementById('wa-disconnected-msg').textContent = t('wa_session_expired');
+            document.getElementById('wa-connect-btn').classList.add('hidden');
+            document.getElementById('wa-relink-btn').classList.remove('hidden');
             document.getElementById('qr-section').classList.add('hidden');
           } else {
             document.getElementById('wa-disconnected-msg').textContent = t('wa_not_linked');
+            document.getElementById('wa-connect-btn').classList.remove('hidden');
+            document.getElementById('wa-relink-btn').classList.add('hidden');
             document.getElementById('qr-section').classList.remove('hidden');
             pollQR();
           }
