@@ -494,11 +494,13 @@ app.post('/wa-disconnect', async (req, res) => {
 
 app.post('/wa-logout', async (req, res) => {
   try {
-    manuallyDisconnected = true;
-    if (isConnected) await sock.logout();
-    else {
+    manuallyDisconnected = false;
+    if (isConnected) {
+      await sock.logout();
+    } else {
       fs.rmSync(SESSION_DIR, { recursive: true, force: true });
       fs.mkdirSync(SESSION_DIR, { recursive: true });
+      connect().catch(err => console.error('[bot] Reconnect after logout error:', err));
     }
     res.json({ ok: true });
   } catch (e) {
