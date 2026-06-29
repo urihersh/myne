@@ -784,6 +784,10 @@
       if (tab === 'settings') loadAppSettings();
       if (tab === 'logs') loadLogs();
       if (tab !== 'logs') stopLogStream();
+      if (tab !== 'settings' && _waStatusPollInterval) {
+        clearInterval(_waStatusPollInterval);
+        _waStatusPollInterval = null;
+      }
     }
 
     function toggleAccordion(id) {
@@ -1801,6 +1805,8 @@
       showToast(enabled ? `Schedule saved: ${from} – ${to}` : 'Schedule disabled');
     }
 
+    var _waStatusPollInterval = null;
+
     async function checkWAStatus() {
       try {
         const r = await fetch('/api/settings/whatsapp/status');
@@ -1810,6 +1816,10 @@
           document.getElementById('wa-disconnected').classList.add('hidden');
           document.getElementById('wa-name').textContent = d.phone?.name || 'Connected';
           document.getElementById('wa-number').textContent = d.phone?.number ? `+${d.phone.number}` : '';
+          if (_waStatusPollInterval) {
+            clearInterval(_waStatusPollInterval);
+            _waStatusPollInterval = null;
+          }
         } else {
           document.getElementById('wa-connected').classList.add('hidden');
           document.getElementById('wa-disconnected').classList.remove('hidden');
@@ -1824,6 +1834,9 @@
             document.getElementById('wa-relink-btn').classList.add('hidden');
             document.getElementById('qr-section').classList.remove('hidden');
             pollQR();
+          }
+          if (!_waStatusPollInterval && document.getElementById('tab-settings').classList.contains('active')) {
+            _waStatusPollInterval = setInterval(checkWAStatus, 5000);
           }
         }
       } catch (_) {}
