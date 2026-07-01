@@ -323,6 +323,17 @@ class FaceService:
                 if frame_best_conf > best_overall_conf:
                     best_overall_conf = frame_best_conf
                     best_frame = frame.copy()
+
+                # Early exit: if we have 3 strong matches for any kid, stop processing
+                # (confident match already established, no need to scan entire video)
+                for kid_id in kid_ids:
+                    top = kid_top_confs[kid_id]
+                    if len(top) >= 3 and min(top[:3]) >= threshold:
+                        cap.release()
+                        break
+                else:
+                    continue
+                break
         finally:
             cap.release()
 
