@@ -716,6 +716,121 @@ async def stream_logs(service: str = "backend"):
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+@app.get("/api/failed-media")
+async def list_failed_media():
+    """List all media files that failed to process (timeout, error, etc.)."""
+    failed_dir = DATA_DIR / "failed"
+    if not failed_dir.exists():
+        return {"files": []}
+    try:
+        files = []
+        for f in sorted(failed_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+            if f.is_file():
+                stat = f.stat()
+                files.append({
+                    "filename": f.name,
+                    "size": stat.st_size,
+                    "timestamp": datetime.fromtimestamp(stat.st_mtime).isoformat() + "Z",
+                    "is_video": f.suffix.lower() in {".mp4", ".mov", ".avi", ".mkv", ".webm"},
+                })
+        return {"files": files}
+    except Exception as e:
+        return {"files": [], "error": str(e)}
+
+
+@app.post("/api/failed-media/{filename}/retry")
+async def retry_failed_media(request: Request, filename: str, kid_ids: str = ""):
+    """Retry processing a failed media file."""
+    if not re.match(r'^[a-zA-Z0-9_א-ת.-]+$', filename):
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    failed_dir = DATA_DIR / "failed"
+    file_path = failed_dir / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+
+    is_video = file_path.suffix.lower() in {".mp4", ".mov", ".avi", ".mkv", ".webm"}
+    db_settings = get_settings()
+
+    if not kid_ids:
+        all_kids = load_kids()
+        kid_ids = ",".join(k["id"] for k in all_kids)
+
+    threshold = float(db_settings.get("confidence_threshold", "0.35"))
+    kid_id_list = [k.strip() for k in kid_ids.split(",") if k.strip()]
+    kid_names = {k["id"]: k["name"] for k in load_kids()}
+
+    face_service = request.app.state.face_service
+    file_bytes = file_path.read_bytes()
+
+    temp_path = DATA_DIR / "temp" / f"{uuid.uuid4()}{file_path.suffix}"
+    try:
+        temp_path.write_bytes(file_bytes)
+
+        if is_video:
+            result = await asyncio.get_running_loop().run_in_executor(
+                None, face_service.analyze_video, str(temp_path), kid_id_list, threshold
+            )
+            best_frame_bytes = result.pop("best_frame_bytes", None) or _extract_first_frame(str(temp_path))
+        else:
+            result = await asyncio.get_running_loop().run_in_executor(
+                None, face_service.analyze_photo, str(temp_path), kid_id_list, threshold
+            )
+            best_frame_bytes = file_bytes
+
+        matched_kids, best_confidence = _enrich_matches(result, kid_names)
+
+        thumbnail_filename = ""
+        if best_frame_bytes and db_settings.get("thumbnails_enabled", "true") != "false":
+            thumbnail_filename = _save_thumbnail(best_frame_bytes)
+
+        matched_photo_path = ""
+        gp_saved = False
+        forwarded = False
+
+        if result.get("matched"):
+            group_name = filename.split("_", 2)[-1].rsplit(".", 1)[0].replace("_", " ")
+            matched_photo_path = save_matched_photo(
+                file_bytes, group_name, [m["kid_name"] for m in matched_kids], db_settings,
+                original_filename=filename
+            )
+            gp_saved = await save_to_google_photos(file_bytes, group_name, matched_kids, db_settings,
+                                                   filename=filename if is_video else "")
+            forward_to = db_settings.get("forward_to_id")
+            if forward_to:
+                forwarded, fwd_err = await _forward_media(
+                    forward_to, file_bytes, matched_kids, best_confidence, is_video=is_video
+                )
+                if fwd_err:
+                    result["forward_error"] = fwd_err
+
+        result["forwarded"] = forwarded
+        result["saved_to_folder"] = bool(matched_photo_path)
+        result["saved_to_gp"] = gp_saved
+
+        row_id = log_activity(
+            photo_filename=filename,
+            sender="retry",
+            group_name=filename.split("_", 2)[-1].rsplit(".", 1)[0].replace("_", " "),
+            faces_detected=result.get("faces_detected", 0),
+            matched=result.get("matched", False),
+            confidence=best_confidence,
+            forwarded=forwarded,
+            saved_to_gp=gp_saved,
+            kid_names=", ".join(m["kid_name"] for m in matched_kids),
+            matched_photo_path=matched_photo_path,
+            thumbnail_filename=thumbnail_filename,
+            manually_matched=True,
+        )
+        _save_original(file_bytes, row_id, file_path.suffix)
+
+        # Delete from failed directory on success
+        file_path.unlink()
+
+        return result
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
 @app.post("/api/wa-logout")
 async def wa_logout():
     async with httpx.AsyncClient(timeout=10.0) as hx:

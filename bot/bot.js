@@ -357,6 +357,18 @@ async function connect() {
         }
       } catch (e) {
         console.error('[bot] Analysis/forward failed:', e.message);
+        // Save failed media so user can manually retry later
+        try {
+          const failedDir = path.join(DATA_DIR, 'failed');
+          fs.mkdirSync(failedDir, { recursive: true });
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+          const ext = isVideo ? '.mp4' : '.jpg';
+          const filename = `${timestamp}_${groupName.replace(/[^a-zA-Z0-9א-ת]/g, '_')}${ext}`;
+          fs.writeFileSync(path.join(failedDir, filename), buffer);
+          console.log(`[bot] Saved failed media to data/failed/${filename} for manual retry`);
+        } catch (saveErr) {
+          console.error('[bot] Could not save failed media:', saveErr.message);
+        }
       }
     }
   });
