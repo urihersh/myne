@@ -1241,18 +1241,19 @@
       resultsList.classList.remove('hidden');
       resultsList.innerHTML = '';
 
+      const runId = Date.now();
       for (let i = 0; i < testFiles.length; i++) {
         btn.textContent = testFiles.length > 1 ? `${i + 1} / ${testFiles.length}` : '⏳';
         if (testFiles.length > 1) setTestProgress(i, testFiles.length);
         const file = testFiles[i];
         const isVideo = file.type.startsWith('video/');
-        const fileKey = 'f_' + Date.now() + '_' + i;
+        const fileKey = 'f_' + runId + '_' + i;
         _testFileStore[fileKey] = file;
         const form = new FormData();
         form.append('file', file);
         try {
           const ep = isVideo
-            ? `/api/analyze-video?kid_ids=${encodeURIComponent(kidIds)}&sender=test`
+            ? `/api/analyze-video?kid_ids=${encodeURIComponent(kidIds)}&sender=test&is_test=true`
             : `/api/analyze?kid_ids=${encodeURIComponent(kidIds)}&forward=${shouldForward}&is_test=true`;
           const r = await fetch(ep, { method: 'POST', body: form });
           const d = await r.json();
