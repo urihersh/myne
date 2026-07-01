@@ -369,7 +369,7 @@ async def root():
 @app.post("/api/analyze")
 async def analyze_photo(request: Request, file: UploadFile,
                         group_id: str = "", group_name: str = "", sender: str = "unknown",
-                        kid_ids: str = "", forward: bool = False, is_test: bool = False,
+                        kid_ids: str = "", forward: bool = False, skip_logging: bool = False,
                         force_actions: bool = False):
     """Called by the WhatsApp bot (or test panel) when a photo arrives."""
     file_bytes = await file.read()
@@ -428,7 +428,7 @@ async def analyze_photo(request: Request, file: UploadFile,
         result["saved_to_folder"] = bool(matched_photo_path)
         result["saved_to_gp"] = gp_saved
         row_id = 0
-        if not is_test:
+        if not skip_logging:
             row_id = log_activity(
                 photo_filename=file.filename or "photo.jpg",
                 sender=sender or "unknown",
@@ -453,7 +453,7 @@ async def analyze_photo(request: Request, file: UploadFile,
 @app.post("/api/analyze-video")
 async def analyze_video(request: Request, file: UploadFile,
                         group_id: str = "", group_name: str = "", sender: str = "unknown",
-                        kid_ids: str = "", forward: bool = False, is_test: bool = False,
+                        kid_ids: str = "", forward: bool = False, skip_logging: bool = False,
                         force_actions: bool = False):
     """Called by the WhatsApp bot when a video arrives in a watched group."""
     file_bytes = await file.read()
@@ -513,7 +513,7 @@ async def analyze_video(request: Request, file: UploadFile,
         result["forwarded"] = forwarded
         result["saved_to_folder"] = bool(matched_photo_path)
         result["saved_to_gp"] = gp_saved
-        if not is_test:
+        if not skip_logging:
             row_id = log_activity(
                 photo_filename=file.filename or "video.mp4",
                 sender=sender or "unknown",

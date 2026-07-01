@@ -1253,8 +1253,8 @@
         form.append('file', file);
         try {
           const ep = isVideo
-            ? `/api/analyze-video?kid_ids=${encodeURIComponent(kidIds)}&sender=test&is_test=true`
-            : `/api/analyze?kid_ids=${encodeURIComponent(kidIds)}&forward=${shouldForward}&is_test=true`;
+            ? `/api/analyze-video?kid_ids=${encodeURIComponent(kidIds)}&sender=test&skip_logging=true`
+            : `/api/analyze?kid_ids=${encodeURIComponent(kidIds)}&forward=${shouldForward}&skip_logging=true`;
           const r = await fetch(ep, { method: 'POST', body: form });
           const d = await r.json();
           resultsList.insertAdjacentHTML('beforeend', buildResultCard(file.name, d, isVideo, fileKey, kidIds));
