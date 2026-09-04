@@ -722,12 +722,12 @@
 
   <script>
     // ── Utilities ───────────────────────────────────────────────────────────────
-    function showToast(msg, type = 'success') {
+    function showToast(msg, type = 'success', duration = 3000) {
       const el = document.getElementById('toast');
       el.innerHTML = msg;
       el.className = `fixed top-6 end-6 px-4 py-3 rounded-xl text-sm font-medium shadow-lg z-50 ${type === 'success' ? 'bg-green-600 text-white' : 'bg-red-500 text-white'}`;
       el.classList.remove('hidden');
-      setTimeout(() => el.classList.add('hidden'), 3000);
+      setTimeout(() => el.classList.add('hidden'), duration);
     }
 
     function relativeTime(isoStr) {
@@ -1121,12 +1121,14 @@
           : 'Unmarked false positive';
 
         // Show Google Photos link if available
+        let duration = 3000;
         if (!currentState && d.google_photos_url) {
           const gpLink = `<a href="${d.google_photos_url}" target="_blank" class="underline">Delete from Google Photos</a>`;
           msg += `. ${gpLink}`;
+          duration = 6000; // Show longer when there's a link to click
         }
 
-        showToast(msg, 'success');
+        showToast(msg, 'success', duration);
 
         // Reload activity to update UI
         loadActivity();
