@@ -316,12 +316,11 @@ async function connect() {
 
         const endpoint = isVideo ? 'analyze-video' : 'analyze';
         const timeout = isVideo ? 600000 : 90000;
+        // Pass forward=true if not in digest mode so backend handles forwarding and stores message_id
+        const shouldForward = settings.digest_mode !== 'true' && forwardToId;
+        const url = `${PYTHON_API_URL}/api/${endpoint}?group_id=${encodeURIComponent(groupId)}&group_name=${encodeURIComponent(groupName)}&sender=${encodeURIComponent(senderName)}${shouldForward ? '&forward=true' : ''}`;
         await analysisSem.acquire();
-        const res = await axios.post(
-          `${PYTHON_API_URL}/api/${endpoint}?group_id=${encodeURIComponent(groupId)}&group_name=${encodeURIComponent(groupName)}&sender=${encodeURIComponent(senderName)}`,
-          form,
-          { headers: { ...form.getHeaders() }, timeout }
-        ).finally(() => analysisSem.release());
+        const res = await axios.post(url, form, { headers: { ...form.getHeaders() }, timeout }).finally(() => analysisSem.release());
 
         const result = res.data;
         const matchedKids = (result.matches || []).filter(m => m.matched);
@@ -330,9 +329,6 @@ async function connect() {
 
         if (result.matched) {
           const names = matchedKids.map(m => m.kid_name || 'your kid').join(' & ');
-          const bestConf = Math.max(...matchedKids.map(m => m.confidence));
-          const lang = settings.language || 'en';
-          const caption = buildCaption(names, matchedKids.length, isVideo, bestConf, groupName, lang);
 
           if (settings.digest_mode === 'true') {
             const digestForm = new FormData();
@@ -344,16 +340,9 @@ async function connect() {
             const params = new URLSearchParams({ sender: senderName, group_name: groupName, kid_names: names, is_video: String(isVideo) });
             await axios.post(`${PYTHON_API_URL}/api/digest/enqueue?${params}`, digestForm, { headers: digestForm.getHeaders() });
             console.log(`[bot] Queued for digest: ${names}`);
-          } else if (forwardToId) {
-            const msgContent = isVideo
-              ? { video: buffer, caption }
-              : { image: buffer, caption };
-            const sent = await sendWithRetry(() => sock.sendMessage(forwardToId, msgContent));
-            try {
-              await sock.chatModify({ markRead: false, lastMessages: [sent] }, forwardToId);
-            } catch (_) {}
-            console.log(`[bot] Forwarded to ${forwardToId}`);
           }
+          // Note: Forwarding is now handled by backend when forward=true is passed
+          // This ensures message_id is stored for false positive reactions
         }
       } catch (e) {
         console.error('[bot] Analysis/forward failed:', e.message);
