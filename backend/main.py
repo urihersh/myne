@@ -866,6 +866,8 @@ async def retry_failed_media(request: Request, filename: str, kid_ids: str = "")
             thumbnail_filename = _save_thumbnail(best_frame_bytes)
 
         matched_photo_path = ""
+        google_photos_url = ""
+        whatsapp_message_id = ""
         gp_saved = False
         forwarded = False
 
@@ -875,11 +877,11 @@ async def retry_failed_media(request: Request, filename: str, kid_ids: str = "")
                 file_bytes, group_name, [m["kid_name"] for m in matched_kids], db_settings,
                 original_filename=filename
             )
-            gp_saved = await save_to_google_photos(file_bytes, group_name, matched_kids, db_settings,
+            gp_saved, google_photos_url = await save_to_google_photos(file_bytes, group_name, matched_kids, db_settings,
                                                    filename=filename if is_video else "")
             forward_to = db_settings.get("forward_to_id")
             if forward_to:
-                forwarded, fwd_err = await _forward_media(
+                forwarded, fwd_err, whatsapp_message_id = await _forward_media(
                     forward_to, file_bytes, matched_kids, best_confidence, is_video=is_video
                 )
                 if fwd_err:
@@ -902,6 +904,8 @@ async def retry_failed_media(request: Request, filename: str, kid_ids: str = "")
             matched_photo_path=matched_photo_path,
             thumbnail_filename=thumbnail_filename,
             manually_matched=True,
+            whatsapp_message_id=whatsapp_message_id,
+            google_photos_url=google_photos_url,
         )
         _save_original(file_bytes, row_id, file_path.suffix)
 
