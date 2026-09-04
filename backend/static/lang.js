@@ -41,9 +41,14 @@ const TRANSLATIONS = {
     badge_match: 'Match',
     badge_no_match: 'No match',
     badge_manual: 'Matched manually',
+    badge_false_positive: 'False positive',
     // Row actions
     send: 'Send',
     resend: 'Resend',
+    mark_false_positive: 'Mark as false positive',
+    unmark_false_positive: 'Unmark',
+    delete_local_files: 'Delete local saved files',
+    fp_warning: '⚠ Cannot be undone. Google Photos files must be deleted manually.',
     // Test recognition
     test_recognition: 'Test Recognition',
     test_subtitle: 'Try photos or videos without needing WhatsApp',
@@ -297,9 +302,14 @@ const TRANSLATIONS = {
     badge_match: 'זוהה',
     badge_no_match: 'לא זוהה',
     badge_manual: 'זוהה ידנית',
+    badge_false_positive: 'זיהוי שגוי',
     // Row actions
     send: 'שלח',
     resend: 'שלח שוב',
+    mark_false_positive: 'סמן כזיהוי שגוי',
+    unmark_false_positive: 'בטל סימון',
+    delete_local_files: 'מחק קבצים מקומיים',
+    fp_warning: '⚠ לא ניתן לבטל. קבצים ב-Google Photos יש למחוק ידנית.',
     // Test recognition
     test_recognition: 'בדיקת זיהוי',
     test_subtitle: 'נסה תמונות או סרטונים ללא WhatsApp',

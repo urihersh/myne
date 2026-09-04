@@ -44,6 +44,7 @@ class ActivityLog(Base):
     matched_photo_path = Column(String, default="")
     thumbnail_filename = Column(String, default="")
     manually_matched = Column(Boolean, default=False)
+    is_false_positive = Column(Boolean, default=False)
 
     __table_args__ = (
         # Most queries filter/sort by timestamp; matched filter is also common
@@ -99,6 +100,7 @@ def init_db() -> None:
         _add_column(conn, "activity_log", "thumbnail_filename", "TEXT DEFAULT ''")
         _add_column(conn, "activity_log", "manually_matched",  "INTEGER DEFAULT 0")
         _add_column(conn, "activity_log", "saved_to_gp",       "INTEGER DEFAULT 0")
+        _add_column(conn, "activity_log", "is_false_positive", "INTEGER DEFAULT 0")
 
 
 # ── Settings helpers ───────────────────────────────────────────────────────────
@@ -203,6 +205,7 @@ def get_activity_log(
                 "matched_photo_path": r.matched_photo_path or "",
                 "thumbnail_filename": r.thumbnail_filename or "",
                 "manually_matched": bool(r.manually_matched),
+                "is_false_positive": bool(r.is_false_positive),
                 "has_original": (
                     str(r.id) in original_ids
                     or bool(r.matched_photo_path and Path(r.matched_photo_path).exists())
@@ -221,6 +224,18 @@ def mark_activity_manually_matched(activity_id: int) -> None:
         if row:
             row.matched = True
             row.manually_matched = True
+            db.commit()
+    finally:
+        db.close()
+
+
+def mark_activity_false_positive(activity_id: int, is_false_positive: bool) -> None:
+    """Mark an activity entry as a false positive or unmark it."""
+    db = SessionLocal()
+    try:
+        row = db.query(ActivityLog).filter(ActivityLog.id == activity_id).first()
+        if row:
+            row.is_false_positive = is_false_positive
             db.commit()
     finally:
         db.close()
@@ -250,10 +265,14 @@ def get_stats() -> dict:
     try:
         today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         total = db.query(ActivityLog).count()
-        total_matched = db.query(ActivityLog).filter(ActivityLog.matched.is_(True)).count()
+        total_matched = db.query(ActivityLog).filter(
+            ActivityLog.matched.is_(True),
+            ActivityLog.is_false_positive.is_(False)
+        ).count()
         today_total = db.query(ActivityLog).filter(ActivityLog.timestamp >= today).count()
         today_matched = db.query(ActivityLog).filter(
             ActivityLog.matched.is_(True),
+            ActivityLog.is_false_positive.is_(False),
             ActivityLog.timestamp >= today,
         ).count()
         return {

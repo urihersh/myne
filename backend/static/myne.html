@@ -861,7 +861,9 @@
     function _buildBadge(row, compact) {
       const cls = compact ? 'px-1.5 py-0.5 text-xs font-medium rounded-full' : 'px-2 py-0.5 text-xs font-medium rounded-full';
       const kidSpan = (!compact && row.kid_names) ? `<span class="ml-1 text-xs text-gray-500">${row.kid_names}</span>` : '';
-      return row.manually_matched
+      return row.is_false_positive
+        ? `<span class="${cls} bg-red-100 text-red-700">${t('badge_false_positive')}</span>${kidSpan}`
+        : row.manually_matched
         ? `<span class="${cls} bg-violet-100 text-violet-700">${t('badge_manual')}</span>${kidSpan}`
         : row.matched
         ? `<span class="${cls} bg-emerald-100 text-emerald-700">${t('badge_match')}</span>${kidSpan}`
@@ -897,11 +899,18 @@
                 onclick="openLightbox('/api/activity/thumbnail/${encodeURIComponent(row.thumbnail_filename)}')"
                 onerror="this.outerHTML='<div class=\\'w-10 h-10 rounded-lg bg-gray-100\\'></div>'" loading="lazy" />`
         : '<div class="w-10 h-10 rounded-lg bg-gray-50"></div>';
-      const runBtn = row.has_original
+      const runBtn = (row.has_original && !row.is_false_positive)
         ? `<button onclick="rerunActions(${row.id}, this)" title="${row.matched ? 'Re-forward, re-upload to Google Photos and save to folder' : 'Forward, upload to Google Photos and save to folder'}"
               class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-gray-400 hover:bg-emerald-50 hover:text-emerald-600 transition-colors whitespace-nowrap">
               <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/></svg>
               ${row.matched ? t('resend') : t('send')}
+            </button>`
+        : '';
+      const fpBtn = row.matched
+        ? `<button onclick="toggleFalsePositive(${row.id}, ${row.is_false_positive}, this)"
+              class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium ${row.is_false_positive ? 'text-gray-400 hover:bg-gray-50 hover:text-gray-600' : 'text-red-400 hover:bg-red-50 hover:text-red-600'} transition-colors whitespace-nowrap"
+              title="${row.is_false_positive ? t('unmark_false_positive') : t('mark_false_positive')}">
+              ${row.is_false_positive ? t('unmark_false_positive') : t('mark_false_positive')}
             </button>`
         : '';
       return `<tr class="border-t border-gray-50 hover:bg-gray-50/70 transition-colors">
@@ -913,7 +922,7 @@
         <td class="px-5 py-3 text-gray-600">${row.faces_detected}</td>
         <td class="px-5 py-3" id="badge-cell-${row.id}">${badge}${_buildActions(row)}</td>
         <td class="px-5 py-3 text-gray-600">${conf}</td>
-        <td class="px-3 py-2">${runBtn}</td>
+        <td class="px-3 py-2 space-x-1">${runBtn}${fpBtn}</td>
       </tr>`;
     }
 
@@ -925,10 +934,16 @@
       const thumbEl = imgSrc
         ? `<img src="${imgSrc}" class="w-full aspect-square object-cover cursor-pointer" onclick="openLightbox('${imgSrc}')" onerror="this.closest('.act-card-img').innerHTML='<div class=\\'w-full aspect-square bg-gray-50\\'></div>'" loading="lazy" />`
         : `<div class="w-full aspect-square bg-gray-50 flex items-center justify-center text-gray-200"><svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg></div>`;
-      const runBtn = row.has_original
+      const runBtn = (row.has_original && !row.is_false_positive)
         ? `<button onclick="rerunActions(${row.id}, this)" class="w-full mt-2 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:bg-emerald-50 hover:text-emerald-600 transition-colors flex items-center justify-center gap-1">
               <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5"/></svg>
               ${row.matched ? t('resend') : t('send')}
+            </button>`
+        : '';
+      const fpBtn = row.matched
+        ? `<button onclick="toggleFalsePositive(${row.id}, ${row.is_false_positive}, this)"
+              class="w-full mt-2 py-1.5 rounded-lg text-xs font-medium ${row.is_false_positive ? 'text-gray-400 hover:bg-gray-50 hover:text-gray-600' : 'text-red-400 hover:bg-red-50 hover:text-red-600'} transition-colors flex items-center justify-center">
+              ${row.is_false_positive ? t('unmark_false_positive') : t('mark_false_positive')}
             </button>`
         : '';
       return `<div class="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100">
@@ -942,6 +957,7 @@
           <div class="mt-1">${_mediaTypeBadge(row)}</div>
           ${_buildActions(row)}
           ${runBtn}
+          ${fpBtn}
         </div>
       </div>`;
     }
@@ -1018,6 +1034,95 @@
           badgeCell.innerHTML = `<span class="px-2 py-0.5 bg-violet-100 text-violet-700 rounded-full text-xs font-medium">${t('badge_manual')}</span>`;
           btn.innerHTML = originalHTML.replace(t('send'), t('resend'));
         }
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHTML;
+      }
+    }
+
+    async function toggleFalsePositive(id, currentState, btn) {
+      // If marking as false positive, show confirmation with file deletion option
+      let deleteFiles = false;
+      if (!currentState) {
+        const modalHtml = `
+          <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" id="fp-modal" onclick="if(event.target.id==='fp-modal')window._cancelFP()">
+            <div class="bg-white rounded-2xl p-6 max-w-md mx-4 shadow-xl">
+              <h3 class="text-lg font-semibold mb-2">${t('mark_false_positive')}</h3>
+              <p class="text-sm text-gray-600 mb-4">${t('fp_warning')}</p>
+              <label class="flex items-start gap-2 mb-4 cursor-pointer">
+                <input type="checkbox" id="fp-delete-checkbox" class="mt-0.5 rounded border-gray-300">
+                <span class="text-sm text-gray-700">${t('delete_local_files')}</span>
+              </label>
+              <div class="flex gap-2">
+                <button onclick="window._cancelFP()"
+                  class="flex-1 px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100">
+                  Cancel
+                </button>
+                <button onclick="window._confirmFP()"
+                  class="flex-1 px-4 py-2 rounded-lg text-sm font-medium bg-red-500 text-white hover:bg-red-600">
+                  Confirm
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        // Set up confirmation callback
+        const confirmed = await new Promise((resolve) => {
+          const escHandler = (e) => {
+            if (e.key === 'Escape') {
+              window._cancelFP?.();
+            }
+          };
+
+          window._confirmFP = () => {
+            deleteFiles = document.getElementById('fp-delete-checkbox')?.checked || false;
+            document.getElementById('fp-modal')?.remove();
+            document.removeEventListener('keydown', escHandler);
+            delete window._confirmFP;
+            delete window._cancelFP;
+            resolve(true);
+          };
+          window._cancelFP = () => {
+            document.getElementById('fp-modal')?.remove();
+            document.removeEventListener('keydown', escHandler);
+            delete window._confirmFP;
+            delete window._cancelFP;
+            resolve(false);
+          };
+
+          document.addEventListener('keydown', escHandler);
+        });
+
+        if (!confirmed) return; // User cancelled
+      }
+
+      const originalHTML = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>';
+
+      try {
+        const r = await fetch(`/api/myne/activity/${id}/false-positive`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            is_false_positive: !currentState,
+            delete_local_files: deleteFiles
+          })
+        });
+        const d = await r.json();
+        if (!r.ok) { showToast(d.detail || 'Failed', 'error'); return; }
+
+        const msg = !currentState
+          ? (deleteFiles ? 'Marked as false positive and deleted files' : 'Marked as false positive')
+          : 'Unmarked false positive';
+        showToast(msg, 'success');
+
+        // Reload activity to update UI
+        loadActivity();
       } catch (e) {
         showToast('Error: ' + e.message, 'error');
       } finally {

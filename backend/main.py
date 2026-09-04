@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
-from database import init_db, get_settings, log_activity, save_setting, get_activity_by_id, mark_activity_manually_matched
+from database import init_db, get_settings, log_activity, save_setting, get_activity_by_id, mark_activity_manually_matched, mark_activity_false_positive
 from face_service import FaceService, warm_up_model, get_model_status
 from google_photos import GooglePhotosService
 from routers.enrollment import router as enrollment_router, load_kids
@@ -587,6 +587,53 @@ async def rerun_actions(activity_id: int):
     if fwd_err:
         result["forward_error"] = fwd_err
     return result
+
+
+@app.post("/api/myne/activity/{activity_id}/false-positive")
+async def mark_false_positive(activity_id: int, request: Request):
+    """Mark or unmark an activity entry as a false positive, optionally deleting local files."""
+    body = await request.json()
+    is_false_positive = body.get("is_false_positive", False)
+    delete_local_files = body.get("delete_local_files", False)
+
+    row = get_activity_by_id(activity_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Activity row not found")
+
+    # Only matched entries can be marked as false positive
+    if not row.matched and is_false_positive:
+        raise HTTPException(status_code=400, detail="Only matched entries can be marked as false positive")
+
+    # Update the database
+    mark_activity_false_positive(activity_id, is_false_positive)
+
+    # Delete local files if requested
+    deleted_files = []
+    if delete_local_files and is_false_positive:
+        # Delete from saved folder
+        if row.matched_photo_path:
+            try:
+                matched_path = Path(row.matched_photo_path)
+                if matched_path.exists():
+                    matched_path.unlink()
+                    deleted_files.append(str(matched_path))
+            except Exception as e:
+                print(f"[backend] Failed to delete matched photo: {e}", flush=True)
+
+        # Delete from originals directory
+        if ORIGINALS_DIR.exists():
+            for original_file in ORIGINALS_DIR.glob(f"{activity_id}.*"):
+                try:
+                    original_file.unlink()
+                    deleted_files.append(str(original_file))
+                except Exception as e:
+                    print(f"[backend] Failed to delete original: {e}", flush=True)
+
+    return {
+        "ok": True,
+        "is_false_positive": is_false_positive,
+        "deleted_files": deleted_files
+    }
 
 
 _log_file_handle = None
