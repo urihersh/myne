@@ -399,6 +399,10 @@ app.post('/send', express.json({ limit: '20mb' }), async (req, res) => {
   try {
     const sentMsg = await sock.sendMessage(to, { image: Buffer.from(image_b64, 'base64'), caption: caption || '' });
     const messageId = sentMsg?.key?.id || '';
+    // Mark as unread so user notices the forwarded message
+    try {
+      await sock.chatModify({ markRead: false, lastMessages: [sentMsg] }, to);
+    } catch (_) {}
     res.json({ success: true, message_id: messageId });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -412,6 +416,10 @@ app.post('/send-video', express.json({ limit: '200mb' }), async (req, res) => {
   try {
     const sentMsg = await sock.sendMessage(to, { video: Buffer.from(video_b64, 'base64'), caption: caption || '' });
     const messageId = sentMsg?.key?.id || '';
+    // Mark as unread so user notices the forwarded message
+    try {
+      await sock.chatModify({ markRead: false, lastMessages: [sentMsg] }, to);
+    } catch (_) {}
     res.json({ success: true, message_id: messageId });
   } catch (e) {
     res.status(500).json({ error: e.message });
