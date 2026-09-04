@@ -133,11 +133,13 @@ class GooglePhotosService:
         img_bytes: bytes,
         album_name: str = "",
         filename: str = "photo.jpg",
-    ) -> bool:
+    ) -> tuple[bool, str]:
         """Upload bytes to Google Photos.
 
         Step 1: POST raw bytes → receive an upload token.
         Step 2: POST batchCreate with the token (+ optional album ID).
+
+        Returns: (success, productUrl) - URL is empty string if upload failed
         """
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
         content_type = {
@@ -162,11 +164,11 @@ class GooglePhotosService:
                 )
                 if r.status_code != 200:
                     print(f"[google-photos] upload step failed ({r.status_code}): {r.text[:200]}", flush=True)
-                    return False
+                    return False, ""
                 upload_token = r.text.strip()
                 if not upload_token:
                     print("[google-photos] upload step returned empty token", flush=True)
-                    return False
+                    return False, ""
 
                 body: dict = {"newMediaItems": [{"simpleMediaItem": {
                     "uploadToken": upload_token,
@@ -185,12 +187,17 @@ class GooglePhotosService:
             results = data.get("newMediaItemResults", [])
             if not results:
                 print(f"[google-photos] batchCreate failed ({r.status_code}): {data}", flush=True)
-                return False
+                return False, ""
             status = results[0].get("status", {})
             ok = status.get("message") == "Success" or status.get("code") in (0, None)
             if not ok:
                 print(f"[google-photos] media item rejected: {status}", flush=True)
-            return ok
+                return False, ""
+
+            # Extract productUrl from the created media item
+            media_item = results[0].get("mediaItem", {})
+            product_url = media_item.get("productUrl", "")
+            return True, product_url
         except Exception as e:
             print(f"[google-photos] upload_photo error: {e}", flush=True)
-            return False
+            return False, ""

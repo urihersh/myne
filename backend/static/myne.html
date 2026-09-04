@@ -1116,9 +1116,16 @@
         const d = await r.json();
         if (!r.ok) { showToast(d.detail || 'Failed', 'error'); return; }
 
-        const msg = !currentState
+        let msg = !currentState
           ? (deleteFiles ? 'Marked as false positive and deleted files' : 'Marked as false positive')
           : 'Unmarked false positive';
+
+        // Show Google Photos link if available
+        if (!currentState && d.google_photos_url) {
+          const gpLink = `<a href="${d.google_photos_url}" target="_blank" class="underline">Delete from Google Photos</a>`;
+          msg += `. ${gpLink}`;
+        }
+
         showToast(msg, 'success');
 
         // Reload activity to update UI

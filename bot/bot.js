@@ -408,8 +408,9 @@ app.post('/send', express.json({ limit: '20mb' }), async (req, res) => {
   const { to, caption, image_b64 } = req.body;
   if (!image_b64 || !to) return res.status(400).json({ error: 'Missing to or image_b64' });
   try {
-    await sock.sendMessage(to, { image: Buffer.from(image_b64, 'base64'), caption: caption || '' });
-    res.json({ success: true });
+    const sentMsg = await sock.sendMessage(to, { image: Buffer.from(image_b64, 'base64'), caption: caption || '' });
+    const messageId = sentMsg?.key?.id || '';
+    res.json({ success: true, message_id: messageId });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -420,8 +421,9 @@ app.post('/send-video', express.json({ limit: '200mb' }), async (req, res) => {
   const { to, caption, video_b64 } = req.body;
   if (!video_b64 || !to) return res.status(400).json({ error: 'Missing to or video_b64' });
   try {
-    await sock.sendMessage(to, { video: Buffer.from(video_b64, 'base64'), caption: caption || '' });
-    res.json({ success: true });
+    const sentMsg = await sock.sendMessage(to, { video: Buffer.from(video_b64, 'base64'), caption: caption || '' });
+    const messageId = sentMsg?.key?.id || '';
+    res.json({ success: true, message_id: messageId });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -433,6 +435,23 @@ app.post('/send-text', async (req, res) => {
   if (!text || !to) return res.status(400).json({ error: 'Missing to or text' });
   try {
     await sock.sendMessage(to, { text });
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/react', async (req, res) => {
+  if (!isConnected) return res.status(503).json({ error: 'Not connected' });
+  const { to, message_id, emoji } = req.body;
+  if (!to || !message_id || !emoji) return res.status(400).json({ error: 'Missing to, message_id, or emoji' });
+  try {
+    await sock.sendMessage(to, {
+      react: {
+        text: emoji,
+        key: { remoteJid: to, id: message_id }
+      }
+    });
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });

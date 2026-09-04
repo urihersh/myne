@@ -45,6 +45,8 @@ class ActivityLog(Base):
     thumbnail_filename = Column(String, default="")
     manually_matched = Column(Boolean, default=False)
     is_false_positive = Column(Boolean, default=False)
+    whatsapp_message_id = Column(String, default="")
+    google_photos_url = Column(String, default="")
 
     __table_args__ = (
         # Most queries filter/sort by timestamp; matched filter is also common
@@ -101,6 +103,8 @@ def init_db() -> None:
         _add_column(conn, "activity_log", "manually_matched",  "INTEGER DEFAULT 0")
         _add_column(conn, "activity_log", "saved_to_gp",       "INTEGER DEFAULT 0")
         _add_column(conn, "activity_log", "is_false_positive", "INTEGER DEFAULT 0")
+        _add_column(conn, "activity_log", "whatsapp_message_id", "TEXT DEFAULT ''")
+        _add_column(conn, "activity_log", "google_photos_url",   "TEXT DEFAULT ''")
 
 
 # ── Settings helpers ───────────────────────────────────────────────────────────
@@ -141,6 +145,8 @@ def log_activity(
     thumbnail_filename: str = "",
     saved_to_gp: bool = False,
     manually_matched: bool = False,
+    whatsapp_message_id: str = "",
+    google_photos_url: str = "",
 ) -> int:
     db = SessionLocal()
     try:
@@ -157,6 +163,8 @@ def log_activity(
             matched_photo_path=matched_photo_path,
             thumbnail_filename=thumbnail_filename,
             manually_matched=manually_matched,
+            whatsapp_message_id=whatsapp_message_id,
+            google_photos_url=google_photos_url,
         )
         db.add(row)
         db.commit()
@@ -206,6 +214,8 @@ def get_activity_log(
                 "thumbnail_filename": r.thumbnail_filename or "",
                 "manually_matched": bool(r.manually_matched),
                 "is_false_positive": bool(r.is_false_positive),
+                "whatsapp_message_id": r.whatsapp_message_id or "",
+                "google_photos_url": r.google_photos_url or "",
                 "has_original": (
                     str(r.id) in original_ids
                     or bool(r.matched_photo_path and Path(r.matched_photo_path).exists())

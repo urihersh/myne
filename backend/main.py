@@ -163,8 +163,8 @@ def _build_caption(names: str, count: int, best_conf: float, is_video: bool, lan
 
 
 async def _forward_media(forward_to: str, media_bytes: bytes, matched_kids: list,
-                         best_conf: float, is_video: bool = False) -> tuple[bool, str | None]:
-    """Send matched photo or video to the bot. Return (forwarded, error_msg)."""
+                         best_conf: float, is_video: bool = False) -> tuple[bool, str | None, str]:
+    """Send matched photo or video to the bot. Return (forwarded, error_msg, message_id)."""
     try:
         names = " & ".join(m["kid_name"] for m in matched_kids)
         lang = get_settings().get("language", "en")
@@ -173,30 +173,35 @@ async def _forward_media(forward_to: str, media_bytes: bytes, matched_kids: list
         payload_key = "video_b64" if is_video else "image_b64"
         timeout = 60.0 if is_video else 15.0
         async with httpx.AsyncClient(timeout=timeout) as hx:
-            await hx.post(f"{BOT_API_URL}/{endpoint}", json={
+            response = await hx.post(f"{BOT_API_URL}/{endpoint}", json={
                 "to": forward_to,
                 "caption": caption,
                 payload_key: base64.b64encode(media_bytes).decode(),
             })
-        return True, None
+            data = response.json()
+            message_id = data.get("message_id", "")
+        return True, None, message_id
     except Exception as e:
-        return False, str(e)
+        return False, str(e), ""
 
 
 async def save_to_google_photos(media_bytes: bytes, group_name: str, matched_kids: list, settings: dict,
-                               filename: str = "") -> bool:
-    """Upload matched photo or video to Google Photos if configured."""
+                               filename: str = "") -> tuple[bool, str]:
+    """Upload matched photo or video to Google Photos if configured.
+
+    Returns: (success, productUrl) - URL is empty string if upload failed or not configured
+    """
     if settings.get("google_photos_enabled") != "true":
-        return False
+        return False, ""
     client_id = settings.get("google_photos_client_id", "").strip()
     client_secret = settings.get("google_photos_client_secret", "").strip()
     tokens_json = settings.get("google_photos_tokens", "")
     if not (client_id and client_secret and tokens_json):
-        return False
+        return False, ""
     try:
         tokens = json.loads(tokens_json)
     except Exception:
-        return False
+        return False, ""
 
     svc = GooglePhotosService(
         client_id, client_secret,
@@ -213,7 +218,11 @@ async def save_to_google_photos(media_bytes: bytes, group_name: str, matched_kid
             svc.upload_photo(media_bytes, album_name=m["kid_name"], filename=upload_filename)
             for m in matched_kids
         ])
-        return all(results)
+        # Return first successful URL, or empty if all failed
+        for success, url in results:
+            if success and url:
+                return True, url
+        return all(success for success, _ in results), ""
     else:
         album = settings.get("google_photos_album_name", "").strip() or group_name
         return await svc.upload_photo(media_bytes, album_name=album, filename=upload_filename)
@@ -400,6 +409,8 @@ async def analyze_photo(request: Request, file: UploadFile,
 
         matched_photo_path = ""
         thumbnail_filename = ""
+        google_photos_url = ""
+        whatsapp_message_id = ""
         if db_settings.get("thumbnails_enabled", "true") != "false":
             thumbnail_filename = _save_thumbnail(file_bytes)
         gp_saved = False
@@ -408,7 +419,7 @@ async def analyze_photo(request: Request, file: UploadFile,
                 file_bytes, group_name, [m["kid_name"] for m in matched_kids], db_settings,
                 original_filename=file.filename or ""
             )
-            gp_saved = await save_to_google_photos(file_bytes, group_name, matched_kids, db_settings)
+            gp_saved, google_photos_url = await save_to_google_photos(file_bytes, group_name, matched_kids, db_settings)
             if not matched_photo_path and db_settings.get("save_photos_enabled") == "true":
                 print("[backend] Local folder save failed or path not set", flush=True)
             if not gp_saved and db_settings.get("google_photos_enabled") == "true":
@@ -418,7 +429,7 @@ async def analyze_photo(request: Request, file: UploadFile,
         if result.get("matched"):
             forward_to = db_settings.get("forward_to_id")
             if forward and forward_to:
-                forwarded, fwd_err = await _forward_media(
+                forwarded, fwd_err, whatsapp_message_id = await _forward_media(
                     forward_to, file_bytes, matched_kids, best_confidence
                 )
                 if fwd_err:
@@ -442,6 +453,8 @@ async def analyze_photo(request: Request, file: UploadFile,
                 matched_photo_path=matched_photo_path,
                 thumbnail_filename=thumbnail_filename,
                 manually_matched=force_actions,
+                whatsapp_message_id=whatsapp_message_id,
+                google_photos_url=google_photos_url,
             )
             _save_original(file_bytes, row_id)
 
@@ -486,6 +499,8 @@ async def analyze_video(request: Request, file: UploadFile,
 
         matched_photo_path = ""
         thumbnail_filename = ""
+        google_photos_url = ""
+        whatsapp_message_id = ""
         forwarded = False
         gp_saved = False
         if best_frame_bytes and db_settings.get("thumbnails_enabled", "true") != "false":
@@ -496,7 +511,7 @@ async def analyze_video(request: Request, file: UploadFile,
                 file_bytes, group_name, [m["kid_name"] for m in matched_kids], db_settings,
                 original_filename=video_filename
             )
-            gp_saved = await save_to_google_photos(file_bytes, group_name, matched_kids, db_settings,
+            gp_saved, google_photos_url = await save_to_google_photos(file_bytes, group_name, matched_kids, db_settings,
                                                    filename=video_filename)
             if not matched_photo_path and db_settings.get("save_photos_enabled") == "true":
                 print("[backend] Local folder save failed or path not set", flush=True)
@@ -504,7 +519,7 @@ async def analyze_video(request: Request, file: UploadFile,
                 print("[backend] Google Photos upload failed", flush=True)
             forward_to = db_settings.get("forward_to_id")
             if forward and forward_to:
-                forwarded, fwd_err = await _forward_media(
+                forwarded, fwd_err, whatsapp_message_id = await _forward_media(
                     forward_to, file_bytes, matched_kids, best_confidence, is_video=True
                 )
                 if fwd_err:
@@ -527,6 +542,8 @@ async def analyze_video(request: Request, file: UploadFile,
                 matched_photo_path=matched_photo_path,
                 thumbnail_filename=thumbnail_filename,
                 manually_matched=force_actions,
+                whatsapp_message_id=whatsapp_message_id,
+                google_photos_url=google_photos_url,
             )
             _save_original(file_bytes, row_id, suffix)
         return result
@@ -576,9 +593,9 @@ async def rerun_actions(activity_id: int):
     tasks = [gp_task] + ([fwd_task] if fwd_task else [])
     task_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    gp_ok = task_results[0] if not isinstance(task_results[0], Exception) else False
-    forwarded, fwd_err = (task_results[1] if fwd_task and not isinstance(task_results[1], Exception)
-                          else (False, None))
+    gp_ok, _ = task_results[0] if not isinstance(task_results[0], Exception) else (False, "")
+    forwarded, fwd_err, _ = (task_results[1] if fwd_task and not isinstance(task_results[1], Exception)
+                          else (False, None, ""))
 
     if not row.matched:
         mark_activity_manually_matched(activity_id)
@@ -629,10 +646,28 @@ async def mark_false_positive(activity_id: int, request: Request):
                 except Exception as e:
                     print(f"[backend] Failed to delete original: {e}", flush=True)
 
+    # Send WhatsApp reaction if marking as false positive and message ID exists
+    reacted = False
+    if is_false_positive and row.whatsapp_message_id:
+        forward_to = get_settings().get("forward_to_id", "")
+        if forward_to:
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as hx:
+                    await hx.post(f"{BOT_API_URL}/react", json={
+                        "to": forward_to,
+                        "message_id": row.whatsapp_message_id,
+                        "emoji": "❌"
+                    })
+                reacted = True
+            except Exception as e:
+                print(f"[backend] Failed to send WhatsApp reaction: {e}", flush=True)
+
     return {
         "ok": True,
         "is_false_positive": is_false_positive,
-        "deleted_files": deleted_files
+        "deleted_files": deleted_files,
+        "google_photos_url": row.google_photos_url or "",
+        "reacted": reacted
     }
 
 
