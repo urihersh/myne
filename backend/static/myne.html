@@ -724,7 +724,7 @@
     // ── Utilities ───────────────────────────────────────────────────────────────
     function showToast(msg, type = 'success') {
       const el = document.getElementById('toast');
-      el.textContent = msg;
+      el.innerHTML = msg;
       el.className = `fixed top-6 end-6 px-4 py-3 rounded-xl text-sm font-medium shadow-lg z-50 ${type === 'success' ? 'bg-green-600 text-white' : 'bg-red-500 text-white'}`;
       el.classList.remove('hidden');
       setTimeout(() => el.classList.add('hidden'), 3000);
