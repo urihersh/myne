@@ -9,6 +9,7 @@ no normalisation step required at comparison time.
 import base64
 import shutil
 import threading
+import uuid
 import numpy as np
 import cv2
 from pathlib import Path
@@ -64,11 +65,23 @@ def _largest_face(faces: list):
     return max(faces, key=lambda f: (f.bbox[2] - f.bbox[0]) * (f.bbox[3] - f.bbox[1]))
 
 
+def _bbox_center_dist(a, b) -> float:
+    """Distance between the centers of two [x1,y1,x2,y2] boxes (smaller = closer)."""
+    ax, ay = (a[0] + a[2]) / 2, (a[1] + a[3]) / 2
+    bx, by = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+    return ((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5
+
+
+DEFAULT_THRESHOLD = 0.35
+NEG_MARGIN = 0.0  # suppress a match if similarity-to-negative >= similarity-to-positive - this margin
+
+
 class FaceService:
     def __init__(self, data_dir: str):
         self.kids_dir = Path(data_dir) / "kids"
         self.kids_dir.mkdir(parents=True, exist_ok=True)
         self._cache: dict[str, list] = {}  # kid_id -> [normed_embeddings]
+        self._neg_cache: dict[str, list] = {}  # kid_id -> [normed_embeddings] (negative examples)
 
     # ── Directory helpers ──────────────────────────────────────────────────────
 
@@ -84,6 +97,11 @@ class FaceService:
 
     def enrolled_dir(self, kid_id: str) -> Path:
         d = self.kid_dir(kid_id) / "enrolled"
+        d.mkdir(exist_ok=True)
+        return d
+
+    def neg_emb_dir(self, kid_id: str) -> Path:
+        d = self.kid_dir(kid_id) / "negative_embeddings"
         d.mkdir(exist_ok=True)
         return d
 
@@ -144,6 +162,39 @@ class FaceService:
         except Exception:
             return None
 
+    def get_face_crop_b64_at_bbox(self, image_path: str, bbox: list[float]) -> str | None:
+        """Crop a specific region (given a stored bbox) from the original image on disk."""
+        try:
+            img = self._read(image_path)
+            h, w = img.shape[:2]
+            x1, y1, x2, y2 = [max(0, min(int(v), w if i % 2 == 0 else h)) for i, v in enumerate(bbox)]
+            if x2 <= x1 or y2 <= y1:
+                return None
+            _, buf = cv2.imencode(".jpg", img[y1:y2, x1:x2])
+            return base64.b64encode(buf.tobytes()).decode()
+        except Exception:
+            return None
+
+    def get_embedding_at_bbox(
+        self, image_path: str, target_bbox: list[float]
+    ) -> tuple[np.ndarray, list, list] | None:
+        """Re-detect faces in the original image and return the embedding of whichever
+        detected face is closest to `target_bbox` — used to turn a bbox stored on an
+        activity-log row back into a fresh embedding for negative/confirmed enrollment.
+
+        Returns (normed_embedding, matched_bbox, all_faces_bboxes) or None.
+        """
+        try:
+            img = self._read(image_path)
+            faces = _get_model().get(img)
+            if not faces:
+                return None
+            best_face = min(faces, key=lambda f: _bbox_center_dist(f.bbox, target_bbox))
+            all_bboxes = [f.bbox.tolist() for f in faces]
+            return best_face.normed_embedding, best_face.bbox.tolist(), all_bboxes
+        except Exception:
+            return None
+
     # ── Enrollment ─────────────────────────────────────────────────────────────
 
     def enroll_photo(self, image_path: str, photo_id: str, kid_id: str) -> dict:
@@ -171,6 +222,52 @@ class FaceService:
         if d.exists():
             shutil.rmtree(d)
         self._cache.pop(kid_id, None)
+        self._neg_cache.pop(kid_id, None)
+
+    def add_negative_embedding(self, kid_id: str, embedding: np.ndarray) -> str:
+        """Store a 'this is NOT kid_id' embedding, e.g. from a confirmed false positive."""
+        photo_id = str(uuid.uuid4())
+        np.save(str(self.neg_emb_dir(kid_id) / f"{photo_id}.npy"), embedding)
+        self._neg_cache.pop(kid_id, None)
+        return photo_id
+
+    def add_confirmed_embedding(self, kid_id: str, image_path: str, bbox: list[float], source_label: str = "") -> dict:
+        """Auto-enroll a face from a user-confirmed true-positive match.
+
+        Gated on face quality and on not being a near-duplicate of an existing embedding,
+        so a stream of confirmations can't degrade the pool. Saves through the same
+        enrolled/embeddings storage used by manual enrollment, so it shows up in the
+        normal Enrolled Photos UI.
+        """
+        found = self.get_embedding_at_bbox(image_path, bbox)
+        if found is None:
+            return {"added": False, "reason": "face_not_found"}
+        embedding, matched_bbox, all_bboxes = found
+
+        try:
+            img = self._read(image_path)
+            face_area = (matched_bbox[2] - matched_bbox[0]) * (matched_bbox[3] - matched_bbox[1])
+            img_area = img.shape[0] * img.shape[1]
+            ratio = face_area / img_area if img_area else 0.0
+        except Exception:
+            ratio = 0.0
+        if ratio < 0.02:
+            return {"added": False, "reason": "face_too_small"}
+
+        stored = self._load_embeddings(kid_id)
+        if stored and max(float(np.dot(embedding, se)) for se in stored) > 0.98:
+            return {"added": False, "reason": "duplicate"}
+
+        photo_id = str(uuid.uuid4())
+        np.save(str(self.emb_dir(kid_id) / f"{photo_id}.npy"), embedding)
+        try:
+            crop_b64 = self.get_face_crop_b64_at_bbox(image_path, matched_bbox)
+            if crop_b64:
+                (self.enrolled_dir(kid_id) / f"{photo_id}.jpg").write_bytes(base64.b64decode(crop_b64))
+        except Exception:
+            pass
+        self._cache.pop(kid_id, None)
+        return {"added": True, "photo_id": photo_id, "filename": f"confirmed_{source_label or photo_id}.jpg"}
 
     # ── Recognition ────────────────────────────────────────────────────────────
 
@@ -184,11 +281,24 @@ class FaceService:
         self._cache[kid_id] = result
         return result
 
-    def analyze_photo(self, image_path: str, kid_ids: list[str], threshold: float = 0.35) -> dict:
+    def _load_negative_embeddings(self, kid_id: str) -> list:
+        if kid_id in self._neg_cache:
+            return self._neg_cache[kid_id]
+        emb_d = self.kids_dir / kid_id / "negative_embeddings"
+        if not emb_d.exists():
+            return []
+        result = [np.load(str(f)) for f in emb_d.glob("*.npy")]
+        self._neg_cache[kid_id] = result
+        return result
+
+    def analyze_photo(self, image_path: str, kid_ids: list[str], thresholds: dict[str, float] | float = DEFAULT_THRESHOLD) -> dict:
         """Check a photo against all specified kids.
 
-        Returns overall match status, per-kid breakdown, and face count.
+        Returns overall match status, per-kid breakdown (incl. which face matched), and face count.
         Uses cosine similarity (= dot product on unit-length normed embeddings).
+
+        `thresholds` may be a single float (applied to all kids) or a dict of kid_id -> threshold,
+        allowing a kid-specific override to coexist with the global default.
         """
         try:
             faces = _get_model().get(self._read(image_path))
@@ -199,30 +309,48 @@ class FaceService:
             return {"matched": False, "faces_detected": 0, "matches": []}
 
         face_embeddings = [f.normed_embedding for f in faces]
+        all_faces_bboxes = [f.bbox.tolist() for f in faces]
         kid_results = []
         for kid_id in kid_ids:
             stored = self._load_embeddings(kid_id)
             if not stored:
                 continue
-            best = max(float(np.dot(fe, se)) for fe in face_embeddings for se in stored)
+            threshold = thresholds.get(kid_id, DEFAULT_THRESHOLD) if isinstance(thresholds, dict) else thresholds
+
+            best_conf, best_idx = -1.0, -1
+            for i, fe in enumerate(face_embeddings):
+                for se in stored:
+                    d = float(np.dot(fe, se))
+                    if d > best_conf:
+                        best_conf, best_idx = d, i
+
+            negatives = self._load_negative_embeddings(kid_id)
+            neg_conf = 0.0
+            if negatives and best_idx >= 0:
+                neg_conf = max(float(np.dot(face_embeddings[best_idx], ne)) for ne in negatives)
+            suppressed = bool(negatives) and neg_conf >= best_conf - NEG_MARGIN
+
             kid_results.append({
                 "kid_id": kid_id,
-                "confidence": round(best, 4),
-                "matched": best >= threshold,
+                "confidence": round(best_conf, 4),
+                "matched": best_conf >= threshold and not suppressed,
+                "bbox": all_faces_bboxes[best_idx] if best_idx >= 0 else None,
+                "suppressed_by_negative": suppressed,
+                "neg_confidence": round(neg_conf, 4) if negatives else None,
             })
 
         return {
             "matched": any(r["matched"] for r in kid_results),
             "faces_detected": len(faces),
             "matches": kid_results,
-            "threshold": threshold,
+            "all_faces": all_faces_bboxes,
         }
 
     def analyze_video(
         self,
         video_path: str,
         kid_ids: list[str],
-        threshold: float = 0.35,
+        thresholds: dict[str, float] | float = DEFAULT_THRESHOLD,
     ) -> dict:
         """Sample frames from a video and match against enrolled kids.
 
@@ -256,14 +384,18 @@ class FaceService:
 
         # Load embeddings once outside the frame loop
         stored_embeddings = {kid_id: self._load_embeddings(kid_id) for kid_id in kid_ids}
+        negative_embeddings = {kid_id: self._load_negative_embeddings(kid_id) for kid_id in kid_ids}
 
         # Top-3 confidences per kid across all frames
         kid_top_confs: dict[str, list[float]] = {kid_id: [] for kid_id in kid_ids}
         best_overall_conf = 0.0
         best_frame: np.ndarray | None = None
+        best_frame_bboxes: dict[str, list] = {}
+        best_frame_all_faces: list = []
         max_faces_seen = 0
         frame_idx = 0
         frames_sampled = 0
+        neg_suppressed_frames = 0
         model = _get_model()
 
         try:
@@ -305,30 +437,54 @@ class FaceService:
 
                 max_faces_seen = max(max_faces_seen, len(faces))
                 face_embeddings = [f.normed_embedding for f in faces]
+                frame_face_bboxes = [f.bbox.tolist() for f in faces]
                 frame_best_conf = 0.0
+                frame_kid_bboxes: dict[str, list] = {}
+                frame_had_suppression = False
 
                 for kid_id in kid_ids:
                     stored = stored_embeddings.get(kid_id)
                     if not stored:
                         continue
-                    conf = max(float(np.dot(fe, se)) for fe in face_embeddings for se in stored)
+                    best_conf, best_idx = -1.0, -1
+                    for i, fe in enumerate(face_embeddings):
+                        for se in stored:
+                            d = float(np.dot(fe, se))
+                            if d > best_conf:
+                                best_conf, best_idx = d, i
+
+                    negatives = negative_embeddings.get(kid_id)
+                    if negatives and best_idx >= 0:
+                        neg_conf = max(float(np.dot(face_embeddings[best_idx], ne)) for ne in negatives)
+                        if neg_conf >= best_conf - NEG_MARGIN:
+                            frame_had_suppression = True
+                            continue  # this frame's face looks like a known look-alike — skip as evidence
+
                     # Maintain sorted top-3 list for this kid
                     top = kid_top_confs[kid_id]
-                    top.append(conf)
+                    top.append(best_conf)
                     top.sort(reverse=True)
                     kid_top_confs[kid_id] = top[:3]
-                    if conf > frame_best_conf:
-                        frame_best_conf = conf
+                    if best_idx >= 0:
+                        frame_kid_bboxes[kid_id] = frame_face_bboxes[best_idx]
+                    if best_conf > frame_best_conf:
+                        frame_best_conf = best_conf
+
+                if frame_had_suppression:
+                    neg_suppressed_frames += 1
 
                 if frame_best_conf > best_overall_conf:
                     best_overall_conf = frame_best_conf
                     best_frame = frame.copy()
+                    best_frame_bboxes = frame_kid_bboxes
+                    best_frame_all_faces = frame_face_bboxes
 
                 # Early exit: if we have 3 strong matches for any kid, stop processing
                 # (confident match already established, no need to scan entire video)
                 for kid_id in kid_ids:
                     top = kid_top_confs[kid_id]
-                    if len(top) >= 3 and min(top[:3]) >= threshold:
+                    kid_threshold = thresholds.get(kid_id, DEFAULT_THRESHOLD) if isinstance(thresholds, dict) else thresholds
+                    if len(top) >= 3 and min(top[:3]) >= kid_threshold:
                         cap.release()
                         break
                 else:
@@ -351,18 +507,21 @@ class FaceService:
                 continue
             top = kid_top_confs[kid_id]
             final_conf = sum(top) / len(top) if top else 0.0
+            kid_threshold = thresholds.get(kid_id, DEFAULT_THRESHOLD) if isinstance(thresholds, dict) else thresholds
             kid_results.append({
                 "kid_id": kid_id,
                 "confidence": round(final_conf, 4),
-                "matched": final_conf >= threshold,
+                "matched": final_conf >= kid_threshold,
+                "bbox": best_frame_bboxes.get(kid_id),
             })
 
         return {
             "matched": any(r["matched"] for r in kid_results),
             "faces_detected": max_faces_seen,
             "matches": kid_results,
-            "threshold": threshold,
+            "all_faces": best_frame_all_faces,
             "frames_sampled": frames_sampled,
+            "neg_suppressed_frames": neg_suppressed_frames,
             "best_frame_bytes": best_frame_bytes,
         }
 

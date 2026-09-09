@@ -71,14 +71,21 @@ async def create_kid(request: Request):
 @router.patch("/kids/{kid_id}")
 async def rename_kid(kid_id: str, request: Request):
     body = await request.json()
-    name = body.get("name", "").strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="Name is required")
     kids = load_kids()
     kid = next((k for k in kids if k["id"] == kid_id), None)
     if not kid:
         raise HTTPException(status_code=404, detail="Kid not found")
-    kid["name"] = name
+
+    if "name" in body:
+        name = (body.get("name") or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Name is required")
+        kid["name"] = name
+
+    if "confidence_threshold" in body:
+        value = body.get("confidence_threshold")
+        kid["confidence_threshold"] = float(value) if value is not None else None
+
     save_kids(kids)
     return kid
 

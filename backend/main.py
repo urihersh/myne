@@ -1,9 +1,9 @@
 from fastapi import FastAPI, UploadFile, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import JSONResponse, FileResponse, StreamingResponse
+from fastapi.responses import JSONResponse, FileResponse, StreamingResponse, Response
 from contextlib import asynccontextmanager
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import asyncio
 import ipaddress
 import logging
@@ -20,10 +20,10 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=Path(__file__).parent.parent / ".env")
 
-from database import init_db, get_settings, log_activity, save_setting, get_activity_by_id, mark_activity_manually_matched, mark_activity_false_positive
+from database import init_db, get_settings, log_activity, save_setting, get_activity_by_id, mark_activity_manually_matched, mark_activity_false_positive, mark_activity_confirmed
 from face_service import FaceService, warm_up_model, get_model_status
 from google_photos import GooglePhotosService
-from routers.enrollment import router as enrollment_router, load_kids
+from routers.enrollment import router as enrollment_router, load_kids, load_kid_meta, save_kid_meta
 from routers.settings import router as settings_router
 from routers.dashboard import router as dashboard_router
 from routers.auth import router as auth_router, is_valid_session
@@ -63,8 +63,13 @@ def _extract_first_frame(video_path: str) -> bytes | None:
         return None
 
 
-def _save_thumbnail(img_bytes: bytes) -> str:
-    """Resize img_bytes to a small JPEG, save to THUMBNAILS_DIR, return filename."""
+def _save_thumbnail(img_bytes: bytes, boxes: list[dict] | None = None, all_faces: list | None = None) -> str:
+    """Resize img_bytes to a JPEG thumbnail, save to THUMBNAILS_DIR, return filename.
+
+    `all_faces` (list of [x1,y1,x2,y2] in original-image pixel space) are drawn as thin
+    gray boxes for context; `boxes` (list of {bbox, label, color}) are drawn bold with a
+    label — used to show exactly which face drove a match, especially in group photos.
+    """
     try:
         THUMBNAILS_DIR.mkdir(parents=True, exist_ok=True)
         arr = np.frombuffer(img_bytes, np.uint8)
@@ -72,12 +77,27 @@ def _save_thumbnail(img_bytes: bytes) -> str:
         if img is None:
             return ""
         h, w = img.shape[:2]
-        max_dim = 320
-        if max(h, w) > max_dim:
-            scale = max_dim / max(h, w)
+        max_dim = 640
+        scale = max_dim / max(h, w) if max(h, w) > max_dim else 1.0
+        if scale != 1.0:
             img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+
+        for bbox in (all_faces or []):
+            x1, y1, x2, y2 = [int(v * scale) for v in bbox]
+            cv2.rectangle(img, (x1, y1), (x2, y2), (170, 170, 170), 1)
+        for b in (boxes or []):
+            if not b.get("bbox"):
+                continue
+            x1, y1, x2, y2 = [int(v * scale) for v in b["bbox"]]
+            color = b.get("color", (0, 200, 0))
+            cv2.rectangle(img, (x1, y1), (x2, y2), color, 3)
+            label = b.get("label", "")
+            if label:
+                ty = max(y1 - 8, 14)
+                cv2.putText(img, label, (x1, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2, cv2.LINE_AA)
+
         fname = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:19] + f"_{uuid.uuid4().hex[:6]}.jpg"
-        cv2.imwrite(str(THUMBNAILS_DIR / fname), img, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        cv2.imwrite(str(THUMBNAILS_DIR / fname), img, [cv2.IMWRITE_JPEG_QUALITY, 85])
         return fname
     except Exception:
         return ""
@@ -107,6 +127,20 @@ def _save_original(data: bytes, row_id: int, ext: str = ".jpg") -> None:
         (ORIGINALS_DIR / f"{row_id}{ext}").write_bytes(data)
     except Exception:
         pass
+
+
+def _find_original_media_path(activity_id: int, row) -> Path | None:
+    """Locate the original media file for an activity row (originals dir, falling back
+    to the saved-folder copy) — shared by rerun/false-positive/confirm-match endpoints."""
+    if ORIGINALS_DIR.exists():
+        matches = list(ORIGINALS_DIR.glob(f"{activity_id}.*"))
+        if matches:
+            return matches[0]
+    if row.matched_photo_path:
+        p = Path(row.matched_photo_path)
+        if p.exists():
+            return p
+    return None
 
 
 def _resolve_group(group_id: str, db_settings: dict) -> tuple[list, dict, str]:
@@ -142,6 +176,16 @@ def _resolve_kids(kid_ids: str, group_id: str, group_name: str, db_settings: dic
     return kid_id_list, kid_names, group_name or config_name
 
 
+def _resolve_thresholds(kid_id_list: list, global_threshold: float) -> dict[str, float]:
+    """Return {kid_id: effective_threshold}, using each kid's own override (from kids.json)
+    if set, falling back to the global confidence_threshold setting otherwise."""
+    kid_overrides = {k["id"]: k.get("confidence_threshold") for k in load_kids()}
+    return {
+        kid_id: kid_overrides.get(kid_id) if kid_overrides.get(kid_id) is not None else global_threshold
+        for kid_id in kid_id_list
+    }
+
+
 def _enrich_matches(result: dict, kid_names: dict) -> tuple[list, float]:
     """Add kid_name to each match. Return (matched_kids, best_confidence)."""
     for m in result.get("matches", []):
@@ -149,6 +193,30 @@ def _enrich_matches(result: dict, kid_names: dict) -> tuple[list, float]:
     matched_kids = [m for m in result.get("matches", []) if m["matched"]]
     best_conf = max((m["confidence"] for m in result.get("matches", [])), default=0.0)
     return matched_kids, best_conf
+
+
+def _build_match_boxes(matched_kids: list) -> list[dict]:
+    """Build the {bbox, label, color} list `_save_thumbnail` needs to highlight matched faces.
+
+    cv2.putText only supports ASCII (Hershey fonts have no Hebrew/Unicode glyphs), so the
+    kid's name is only included in the on-image label when it's ASCII-safe — otherwise we
+    fall back to just the confidence percentage so the label never renders as garbage.
+    """
+    boxes = []
+    for m in matched_kids:
+        if not m.get("bbox"):
+            continue
+        pct = f"{m['confidence'] * 100:.0f}%"
+        name = m.get("kid_name", "")
+        label = f"{name} {pct}" if name.isascii() else pct
+        boxes.append({"bbox": m["bbox"], "label": label, "color": (0, 200, 0)})
+    return boxes
+
+
+def _matched_face_bbox_json(matched_kids: list) -> str:
+    """Serialize {kid_id: bbox} for the ones we have a bbox for, to persist on the activity row."""
+    bboxes = {m["kid_id"]: m["bbox"] for m in matched_kids if m.get("bbox")}
+    return json.dumps(bboxes) if bboxes else ""
 
 
 def _build_caption(names: str, count: int, best_conf: float, is_video: bool, lang: str) -> str:
@@ -353,6 +421,30 @@ async def get_activity_thumbnail(filename: str):
     return FileResponse(path, media_type="image/jpeg")
 
 
+@app.get("/api/activity/{activity_id}/face-crop")
+async def get_activity_face_crop(activity_id: int, request: Request, kid_id: str = ""):
+    """Crop the matched face out of the original image for a given kid — used to preview
+    exactly which face is being excluded when marking a false positive."""
+    row = get_activity_by_id(activity_id)
+    if not row or not row.matched_face_bbox:
+        raise HTTPException(status_code=404, detail="No matched-face data for this activity")
+    try:
+        bboxes = json.loads(row.matched_face_bbox)
+    except Exception:
+        bboxes = {}
+    bbox = bboxes.get(kid_id) or (next(iter(bboxes.values())) if bboxes else None)
+    if not bbox:
+        raise HTTPException(status_code=404, detail="No bbox found for this kid")
+    media_path = _find_original_media_path(activity_id, row)
+    if media_path is None:
+        raise HTTPException(status_code=404, detail="Original media no longer available")
+    face_service = request.app.state.face_service
+    crop_b64 = face_service.get_face_crop_b64_at_bbox(str(media_path), bbox)
+    if not crop_b64:
+        raise HTTPException(status_code=404, detail="Could not crop face")
+    return Response(content=base64.b64decode(crop_b64), media_type="image/jpeg")
+
+
 @app.get("/health")
 async def health():
     return {"ok": True}
@@ -388,16 +480,17 @@ async def analyze_photo(request: Request, file: UploadFile,
             await f.write(file_bytes)
 
         db_settings = get_settings()
-        threshold = float(db_settings.get("confidence_threshold", "0.35"))
+        global_threshold = float(db_settings.get("confidence_threshold", "0.35"))
         kid_id_list, kid_names, group_name = _resolve_kids(kid_ids, group_id, group_name, db_settings)
 
         if not kid_id_list:
             return {"matched": False, "faces_detected": 0, "matches": [],
                     "error": "No kids configured for this group"}
 
+        thresholds = _resolve_thresholds(kid_id_list, global_threshold)
         face_service = request.app.state.face_service
         result = await asyncio.get_running_loop().run_in_executor(
-            None, face_service.analyze_photo, str(temp_path), kid_id_list, threshold
+            None, face_service.analyze_photo, str(temp_path), kid_id_list, thresholds
         )
         matched_kids, best_confidence = _enrich_matches(result, kid_names)
 
@@ -412,7 +505,8 @@ async def analyze_photo(request: Request, file: UploadFile,
         google_photos_url = ""
         whatsapp_message_id = ""
         if db_settings.get("thumbnails_enabled", "true") != "false":
-            thumbnail_filename = _save_thumbnail(file_bytes)
+            boxes = _build_match_boxes(matched_kids) if result.get("matched") else None
+            thumbnail_filename = _save_thumbnail(file_bytes, boxes=boxes, all_faces=result.get("all_faces"))
         gp_saved = False
         if result.get("matched"):
             matched_photo_path = save_matched_photo(
@@ -455,6 +549,7 @@ async def analyze_photo(request: Request, file: UploadFile,
                 manually_matched=force_actions,
                 whatsapp_message_id=whatsapp_message_id,
                 google_photos_url=google_photos_url,
+                matched_face_bbox=_matched_face_bbox_json(matched_kids),
             )
             _save_original(file_bytes, row_id)
 
@@ -477,16 +572,17 @@ async def analyze_video(request: Request, file: UploadFile,
             await f.write(file_bytes)
 
         db_settings = get_settings()
-        threshold = float(db_settings.get("confidence_threshold", "0.35"))
+        global_threshold = float(db_settings.get("confidence_threshold", "0.35"))
         kid_id_list, kid_names, group_name = _resolve_kids(kid_ids, group_id, group_name, db_settings)
 
         if not kid_id_list:
             return {"matched": False, "faces_detected": 0, "matches": [],
                     "error": "No kids configured for this group"}
 
+        thresholds = _resolve_thresholds(kid_id_list, global_threshold)
         face_service = request.app.state.face_service
         result = await asyncio.get_running_loop().run_in_executor(
-            None, face_service.analyze_video, str(temp_path), kid_id_list, threshold
+            None, face_service.analyze_video, str(temp_path), kid_id_list, thresholds
         )
         best_frame_bytes = result.pop("best_frame_bytes", None) or _extract_first_frame(str(temp_path))
         matched_kids, best_confidence = _enrich_matches(result, kid_names)
@@ -504,7 +600,8 @@ async def analyze_video(request: Request, file: UploadFile,
         forwarded = False
         gp_saved = False
         if best_frame_bytes and db_settings.get("thumbnails_enabled", "true") != "false":
-            thumbnail_filename = _save_thumbnail(best_frame_bytes)
+            boxes = _build_match_boxes(matched_kids) if result.get("matched") else None
+            thumbnail_filename = _save_thumbnail(best_frame_bytes, boxes=boxes, all_faces=result.get("all_faces"))
         if result.get("matched"):
             video_filename = file.filename or "video.mp4"
             matched_photo_path = save_matched_photo(
@@ -544,6 +641,7 @@ async def analyze_video(request: Request, file: UploadFile,
                 manually_matched=force_actions,
                 whatsapp_message_id=whatsapp_message_id,
                 google_photos_url=google_photos_url,
+                matched_face_bbox=_matched_face_bbox_json(matched_kids),
             )
             _save_original(file_bytes, row_id, suffix)
         return result
@@ -608,10 +706,12 @@ async def rerun_actions(activity_id: int):
 
 @app.post("/api/myne/activity/{activity_id}/false-positive")
 async def mark_false_positive(activity_id: int, request: Request):
-    """Mark or unmark an activity entry as a false positive, optionally deleting local files."""
+    """Mark or unmark an activity entry as a false positive, optionally deleting local files
+    and/or teaching the matcher that the matched face is NOT the given kid (negative example)."""
     body = await request.json()
     is_false_positive = body.get("is_false_positive", False)
     delete_local_files = body.get("delete_local_files", False)
+    add_negative_example = body.get("add_negative_example", False)
 
     row = get_activity_by_id(activity_id)
     if not row:
@@ -620,6 +720,23 @@ async def mark_false_positive(activity_id: int, request: Request):
     # Only matched entries can be marked as false positive
     if not row.matched and is_false_positive:
         raise HTTPException(status_code=400, detail="Only matched entries can be marked as false positive")
+
+    # Add negative example(s) BEFORE any file deletion, using the bbox captured at match time
+    negative_example_added = False
+    if add_negative_example and is_false_positive and row.matched_face_bbox:
+        media_path = _find_original_media_path(activity_id, row)
+        if media_path is not None:
+            try:
+                bboxes = json.loads(row.matched_face_bbox)
+            except Exception:
+                bboxes = {}
+            face_service = request.app.state.face_service
+            for kid_id, bbox in bboxes.items():
+                found = face_service.get_embedding_at_bbox(str(media_path), bbox)
+                if found is not None:
+                    embedding, _, _ = found
+                    face_service.add_negative_embedding(kid_id, embedding)
+                    negative_example_added = True
 
     # Update the database
     mark_activity_false_positive(activity_id, is_false_positive)
@@ -667,8 +784,47 @@ async def mark_false_positive(activity_id: int, request: Request):
         "is_false_positive": is_false_positive,
         "deleted_files": deleted_files,
         "google_photos_url": row.google_photos_url or "",
-        "reacted": reacted
+        "reacted": reacted,
+        "negative_example_added": negative_example_added,
     }
+
+
+@app.post("/api/myne/activity/{activity_id}/confirm-match")
+async def confirm_match(activity_id: int, request: Request):
+    """Confirm a true-positive match. Auto-enrolls the matched face as a new positive photo
+    for that kid (quality/dedup gated), sharpening future matches — low-friction reward path,
+    the counterpart to marking a false positive."""
+    row = get_activity_by_id(activity_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Activity row not found")
+    if not row.matched:
+        raise HTTPException(status_code=400, detail="Only matched entries can be confirmed")
+    if row.is_false_positive:
+        raise HTTPException(status_code=400, detail="Cannot confirm an entry marked as false positive")
+
+    added_to_pool = False
+    if row.matched_face_bbox:
+        media_path = _find_original_media_path(activity_id, row)
+        if media_path is not None:
+            try:
+                bboxes = json.loads(row.matched_face_bbox)
+            except Exception:
+                bboxes = {}
+            face_service = request.app.state.face_service
+            for kid_id, bbox in bboxes.items():
+                outcome = face_service.add_confirmed_embedding(kid_id, str(media_path), bbox, source_label=f"activity_{activity_id}")
+                if outcome.get("added"):
+                    added_to_pool = True
+                    meta = load_kid_meta(kid_id)
+                    meta[outcome["photo_id"]] = {
+                        "photo_id": outcome["photo_id"],
+                        "filename": outcome["filename"],
+                        "enrolled_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                    save_kid_meta(kid_id, meta)
+
+    mark_activity_confirmed(activity_id)
+    return {"ok": True, "confirmed": True, "added_to_pool": added_to_pool}
 
 
 _log_file_handle = None
@@ -837,9 +993,10 @@ async def retry_failed_media(request: Request, filename: str, kid_ids: str = "")
         all_kids = load_kids()
         kid_ids = ",".join(k["id"] for k in all_kids)
 
-    threshold = float(db_settings.get("confidence_threshold", "0.35"))
+    global_threshold = float(db_settings.get("confidence_threshold", "0.35"))
     kid_id_list = [k.strip() for k in kid_ids.split(",") if k.strip()]
     kid_names = {k["id"]: k["name"] for k in load_kids()}
+    thresholds = _resolve_thresholds(kid_id_list, global_threshold)
 
     face_service = request.app.state.face_service
     file_bytes = file_path.read_bytes()
@@ -850,12 +1007,12 @@ async def retry_failed_media(request: Request, filename: str, kid_ids: str = "")
 
         if is_video:
             result = await asyncio.get_running_loop().run_in_executor(
-                None, face_service.analyze_video, str(temp_path), kid_id_list, threshold
+                None, face_service.analyze_video, str(temp_path), kid_id_list, thresholds
             )
             best_frame_bytes = result.pop("best_frame_bytes", None) or _extract_first_frame(str(temp_path))
         else:
             result = await asyncio.get_running_loop().run_in_executor(
-                None, face_service.analyze_photo, str(temp_path), kid_id_list, threshold
+                None, face_service.analyze_photo, str(temp_path), kid_id_list, thresholds
             )
             best_frame_bytes = file_bytes
 
@@ -863,7 +1020,8 @@ async def retry_failed_media(request: Request, filename: str, kid_ids: str = "")
 
         thumbnail_filename = ""
         if best_frame_bytes and db_settings.get("thumbnails_enabled", "true") != "false":
-            thumbnail_filename = _save_thumbnail(best_frame_bytes)
+            boxes = _build_match_boxes(matched_kids) if result.get("matched") else None
+            thumbnail_filename = _save_thumbnail(best_frame_bytes, boxes=boxes, all_faces=result.get("all_faces"))
 
         matched_photo_path = ""
         google_photos_url = ""
@@ -906,6 +1064,7 @@ async def retry_failed_media(request: Request, filename: str, kid_ids: str = "")
             manually_matched=True,
             whatsapp_message_id=whatsapp_message_id,
             google_photos_url=google_photos_url,
+            matched_face_bbox=_matched_face_bbox_json(matched_kids),
         )
         _save_original(file_bytes, row_id, file_path.suffix)
 

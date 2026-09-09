@@ -208,6 +208,21 @@
           </div>
         </div>
         <div class="p-5">
+          <!-- Per-kid confidence threshold override -->
+          <div class="mb-5">
+            <label class="flex items-center gap-2 cursor-pointer select-none mb-2">
+              <input type="checkbox" id="kid-threshold-toggle" onchange="onKidThresholdToggle()" class="rounded border-gray-300 accent-amber-500">
+              <span class="text-xs font-medium text-gray-600" data-i18n="use_custom_threshold">Custom sensitivity for this kid</span>
+            </label>
+            <div id="kid-threshold-row" class="hidden flex items-center gap-4 mb-1">
+              <input type="range" id="kid-threshold-slider" min="40" max="90" value="60" step="5" class="flex-1 accent-amber-500"
+                     oninput="document.getElementById('kid-threshold-value').textContent = this.value + '%'"
+                     onchange="saveKidThreshold()" />
+              <span id="kid-threshold-value" class="text-sm font-bold text-amber-600 w-12 text-end">60%</span>
+            </div>
+            <p class="text-xs text-gray-400" data-i18n="kid_threshold_hint">Overrides the global Match Confidence just for this kid — useful if they're often confused with someone who looks similar.</p>
+          </div>
+
           <!-- Upload area -->
           <div id="drop-zone" class="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center cursor-pointer hover:border-emerald-400 hover:bg-emerald-50 transition-colors mb-5">
             <p class="text-gray-700 font-medium mb-1" data-i18n="drop_photos">Drop photos here or click to upload</p>
@@ -895,10 +910,10 @@
       const conf = row.confidence > 0 ? `${(row.confidence * 100).toFixed(0)}%` : '-';
       const thumb = row.thumbnail_filename
         ? `<img src="/api/activity/thumbnail/${encodeURIComponent(row.thumbnail_filename)}"
-                class="w-10 h-10 rounded-lg object-cover cursor-pointer ring-1 ring-gray-100 hover:ring-emerald-400 transition-all"
+                class="w-14 h-14 rounded-lg object-cover cursor-pointer ring-1 ring-gray-100 hover:ring-emerald-400 transition-all"
                 onclick="openLightbox('/api/activity/thumbnail/${encodeURIComponent(row.thumbnail_filename)}')"
-                onerror="this.outerHTML='<div class=\\'w-10 h-10 rounded-lg bg-gray-100\\'></div>'" loading="lazy" />`
-        : '<div class="w-10 h-10 rounded-lg bg-gray-50"></div>';
+                onerror="this.outerHTML='<div class=\\'w-14 h-14 rounded-lg bg-gray-100\\'></div>'" loading="lazy" />`
+        : '<div class="w-14 h-14 rounded-lg bg-gray-50"></div>';
       const runBtn = (row.has_original && !row.is_false_positive)
         ? `<button onclick="rerunActions(${row.id}, this)" title="${row.matched ? 'Re-forward, re-upload to Google Photos and save to folder' : 'Forward, upload to Google Photos and save to folder'}"
               class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-gray-400 hover:bg-emerald-50 hover:text-emerald-600 transition-colors whitespace-nowrap">
@@ -907,11 +922,16 @@
             </button>`
         : '';
       const fpBtn = row.matched
-        ? `<button onclick="toggleFalsePositive(${row.id}, ${row.is_false_positive}, this)"
+        ? `<button onclick="toggleFalsePositive(${row.id}, ${row.is_false_positive}, ${!!row.matched_face_bbox}, this)"
               class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium ${row.is_false_positive ? 'text-gray-400 hover:bg-gray-50 hover:text-gray-600' : 'text-red-400 hover:bg-red-50 hover:text-red-600'} transition-colors whitespace-nowrap"
               title="${row.is_false_positive ? t('unmark_false_positive') : t('mark_false_positive')}">
               ${row.is_false_positive ? t('unmark_false_positive') : t('mark_false_positive')}
             </button>`
+        : '';
+      const confirmBtn = (row.matched && !row.is_false_positive)
+        ? (row.confirmed
+            ? `<span class="inline-flex items-center px-2 py-1 text-xs font-medium text-emerald-500" title="${t('confirmed_tooltip')}">✓</span>`
+            : `<button onclick="confirmMatch(${row.id}, this)" class="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-emerald-500 hover:bg-emerald-50 transition-colors whitespace-nowrap" title="${t('confirm_match')}">✓ ${t('confirm_match')}</button>`)
         : '';
       return `<tr class="border-t border-gray-50 hover:bg-gray-50/70 transition-colors">
         <td class="px-3 py-2">${thumb}</td>
@@ -922,7 +942,7 @@
         <td class="px-5 py-3 text-gray-600">${row.faces_detected}</td>
         <td class="px-5 py-3" id="badge-cell-${row.id}">${badge}${_buildActions(row)}</td>
         <td class="px-5 py-3 text-gray-600">${conf}</td>
-        <td class="px-3 py-2 space-x-1">${runBtn}${fpBtn}</td>
+        <td class="px-3 py-2 space-x-1">${runBtn}${confirmBtn}${fpBtn}</td>
       </tr>`;
     }
 
@@ -941,10 +961,15 @@
             </button>`
         : '';
       const fpBtn = row.matched
-        ? `<button onclick="toggleFalsePositive(${row.id}, ${row.is_false_positive}, this)"
+        ? `<button onclick="toggleFalsePositive(${row.id}, ${row.is_false_positive}, ${!!row.matched_face_bbox}, this)"
               class="w-full mt-2 py-1.5 rounded-lg text-xs font-medium ${row.is_false_positive ? 'text-gray-400 hover:bg-gray-50 hover:text-gray-600' : 'text-red-400 hover:bg-red-50 hover:text-red-600'} transition-colors flex items-center justify-center">
               ${row.is_false_positive ? t('unmark_false_positive') : t('mark_false_positive')}
             </button>`
+        : '';
+      const confirmBtn = (row.matched && !row.is_false_positive)
+        ? (row.confirmed
+            ? `<p class="w-full mt-2 py-1.5 text-xs font-medium text-emerald-500 text-center" title="${t('confirmed_tooltip')}">✓ ${t('confirmed_tooltip')}</p>`
+            : `<button onclick="confirmMatch(${row.id}, this)" class="w-full mt-2 py-1.5 rounded-lg text-xs font-medium text-emerald-500 hover:bg-emerald-50 transition-colors flex items-center justify-center">✓ ${t('confirm_match')}</button>`)
         : '';
       return `<div class="bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100">
         <div class="act-card-img relative">${thumbEl}<div class="absolute top-2 right-2" id="badge-cell-${row.id}">${badge}</div></div>
@@ -957,6 +982,7 @@
           <div class="mt-1">${_mediaTypeBadge(row)}</div>
           ${_buildActions(row)}
           ${runBtn}
+          ${confirmBtn}
           ${fpBtn}
         </div>
       </div>`;
@@ -1042,15 +1068,27 @@
       }
     }
 
-    async function toggleFalsePositive(id, currentState, btn) {
-      // If marking as false positive, show confirmation with file deletion option
+    async function toggleFalsePositive(id, currentState, hasBbox, btn) {
+      // If marking as false positive, show confirmation with file deletion + "teach system" options
       let deleteFiles = false;
+      let addNegativeExample = false;
       if (!currentState) {
+        const cropImg = hasBbox
+          ? `<img src="/api/activity/${id}/face-crop" class="w-20 h-20 rounded-lg object-cover mb-3 ring-1 ring-gray-200" onerror="this.classList.add('hidden')" />`
+          : '';
+        const negativeCheckbox = hasBbox
+          ? `<label class="flex items-start gap-2 mb-3 cursor-pointer">
+               <input type="checkbox" id="fp-negative-checkbox" checked class="mt-0.5 rounded border-gray-300">
+               <span class="text-sm text-gray-700">${t('teach_not_kid')}</span>
+             </label>`
+          : '';
         const modalHtml = `
           <div class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" id="fp-modal" onclick="if(event.target.id==='fp-modal')window._cancelFP()">
             <div class="bg-white rounded-2xl p-6 max-w-md mx-4 shadow-xl">
               <h3 class="text-lg font-semibold mb-2">${t('mark_false_positive')}</h3>
+              ${cropImg}
               <p class="text-sm text-gray-600 mb-4">${t('fp_warning')}</p>
+              ${negativeCheckbox}
               <label class="flex items-start gap-2 mb-4 cursor-pointer">
                 <input type="checkbox" id="fp-delete-checkbox" class="mt-0.5 rounded border-gray-300">
                 <span class="text-sm text-gray-700">${t('delete_local_files')}</span>
@@ -1080,6 +1118,7 @@
 
           window._confirmFP = () => {
             deleteFiles = document.getElementById('fp-delete-checkbox')?.checked || false;
+            addNegativeExample = document.getElementById('fp-negative-checkbox')?.checked || false;
             document.getElementById('fp-modal')?.remove();
             document.removeEventListener('keydown', escHandler);
             delete window._confirmFP;
@@ -1110,7 +1149,8 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             is_false_positive: !currentState,
-            delete_local_files: deleteFiles
+            delete_local_files: deleteFiles,
+            add_negative_example: addNegativeExample
           })
         });
         const d = await r.json();
@@ -1119,6 +1159,7 @@
         let msg = !currentState
           ? (deleteFiles ? 'Marked as false positive and deleted files' : 'Marked as false positive')
           : 'Unmarked false positive';
+        if (d.negative_example_added) msg += ` — ${t('negative_added')}`;
 
         // Show Google Photos link if available
         let duration = 3000;
@@ -1131,6 +1172,24 @@
         showToast(msg, 'success', duration);
 
         // Reload activity to update UI
+        loadActivity();
+      } catch (e) {
+        showToast('Error: ' + e.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalHTML;
+      }
+    }
+
+    async function confirmMatch(id, btn) {
+      const originalHTML = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = '<svg class="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/></svg>';
+      try {
+        const r = await fetch(`/api/myne/activity/${id}/confirm-match`, { method: 'POST' });
+        const d = await r.json();
+        if (!r.ok) { showToast(d.detail || 'Failed', 'error'); return; }
+        showToast(d.added_to_pool ? t('confirmed_added_to_pool') : t('confirmed_match'), 'success');
         loadActivity();
       } catch (e) {
         showToast('Error: ' + e.message, 'error');
@@ -1414,10 +1473,14 @@
         const avatar = k.enrolled_count > 0
           ? `<img src="/api/enrollment/kids/${k.id}/thumbnail" class="w-16 h-16 rounded-full object-cover mx-auto mb-2 ring-2 ring-white shadow-sm" onerror="this.outerHTML='<div class=\\'w-16 h-16 rounded-full bg-emerald-100 flex items-center justify-center mx-auto mb-2 text-2xl font-bold text-emerald-500\\'>${k.name.charAt(0).toUpperCase()}</div>'" />`
           : `<div class="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-2 text-2xl font-bold text-gray-300">${k.name.charAt(0).toUpperCase()}</div>`;
+        const thresholdBadge = k.confidence_threshold != null
+          ? `<span class="inline-block mt-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-600" title="${t('kid_threshold_hint')}">${t('kid_threshold_badge')}</span>`
+          : '';
         return `<div onclick="selectKid('${k.id}')" class="kid-card bg-white rounded-2xl p-4 shadow-sm border-2 ${active ? 'border-emerald-400' : 'border-gray-100'} text-center">
           ${avatar}
           <p class="text-sm font-semibold text-gray-900 truncate">${k.name}</p>
           <p class="text-xs text-gray-400 mt-0.5">${tpl('kid_photos', k.enrolled_count)}</p>
+          ${thresholdBadge}
         </div>`;
       }).join('');
       html += `<div onclick="openModal()" class="kid-card bg-white rounded-2xl p-4 shadow-sm border-2 border-dashed border-gray-200 text-center flex flex-col items-center justify-center min-h-[120px] hover:border-emerald-400 hover:bg-emerald-50 transition-colors">
@@ -1437,6 +1500,15 @@
       document.getElementById('kid-detail-name').textContent = kid.name;
       document.getElementById('kid-detail-count').textContent = tpl('kid_photos', kid.enrolled_count);
       document.getElementById('delete-kid-btn').onclick = () => deleteKid(kid.id, kid.name);
+
+      const hasCustomThreshold = kid.confidence_threshold != null;
+      document.getElementById('kid-threshold-toggle').checked = hasCustomThreshold;
+      document.getElementById('kid-threshold-row').classList.toggle('hidden', !hasCustomThreshold);
+      const globalPct = parseInt(document.getElementById('threshold-slider')?.value || '60');
+      const pct = hasCustomThreshold ? Math.round(kid.confidence_threshold * 100) : globalPct;
+      document.getElementById('kid-threshold-slider').value = pct;
+      document.getElementById('kid-threshold-value').textContent = pct + '%';
+
       renderKidsGrid();
       pending = [];
       document.getElementById('pending-grid').innerHTML = '';
@@ -1449,6 +1521,28 @@
       selectedKid = null;
       document.getElementById('kid-detail').classList.add('hidden');
       renderKidsGrid();
+    }
+
+    function onKidThresholdToggle() {
+      const on = document.getElementById('kid-threshold-toggle').checked;
+      document.getElementById('kid-threshold-row').classList.toggle('hidden', !on);
+      if (!on) saveKidThreshold();
+    }
+
+    async function saveKidThreshold() {
+      if (!selectedKid) return;
+      const useCustom = document.getElementById('kid-threshold-toggle').checked;
+      const value = useCustom ? parseInt(document.getElementById('kid-threshold-slider').value) / 100 : null;
+      try {
+        await fetch(`/api/enrollment/kids/${selectedKid.id}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ confidence_threshold: value })
+        });
+        selectedKid.confidence_threshold = value;
+        const kid = kids.find(k => k.id === selectedKid.id);
+        if (kid) kid.confidence_threshold = value;
+        renderKidsGrid();
+      } catch (_) { showToast(t('failed_save_settings'), 'error'); }
     }
 
     function openModal() { document.getElementById('new-kid-name').value = ''; document.getElementById('add-kid-modal').classList.remove('hidden'); setTimeout(() => document.getElementById('new-kid-name').focus(), 50); }

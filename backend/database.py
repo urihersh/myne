@@ -47,6 +47,8 @@ class ActivityLog(Base):
     is_false_positive = Column(Boolean, default=False)
     whatsapp_message_id = Column(String, default="")
     google_photos_url = Column(String, default="")
+    matched_face_bbox = Column(String, default="")
+    confirmed = Column(Boolean, default=False)
 
     __table_args__ = (
         # Most queries filter/sort by timestamp; matched filter is also common
@@ -105,6 +107,8 @@ def init_db() -> None:
         _add_column(conn, "activity_log", "is_false_positive", "INTEGER DEFAULT 0")
         _add_column(conn, "activity_log", "whatsapp_message_id", "TEXT DEFAULT ''")
         _add_column(conn, "activity_log", "google_photos_url",   "TEXT DEFAULT ''")
+        _add_column(conn, "activity_log", "matched_face_bbox",   "TEXT DEFAULT ''")
+        _add_column(conn, "activity_log", "confirmed",           "INTEGER DEFAULT 0")
 
 
 # ── Settings helpers ───────────────────────────────────────────────────────────
@@ -147,6 +151,7 @@ def log_activity(
     manually_matched: bool = False,
     whatsapp_message_id: str = "",
     google_photos_url: str = "",
+    matched_face_bbox: str = "",
 ) -> int:
     db = SessionLocal()
     try:
@@ -165,6 +170,7 @@ def log_activity(
             manually_matched=manually_matched,
             whatsapp_message_id=whatsapp_message_id,
             google_photos_url=google_photos_url,
+            matched_face_bbox=matched_face_bbox,
         )
         db.add(row)
         db.commit()
@@ -216,6 +222,8 @@ def get_activity_log(
                 "is_false_positive": bool(r.is_false_positive),
                 "whatsapp_message_id": r.whatsapp_message_id or "",
                 "google_photos_url": r.google_photos_url or "",
+                "matched_face_bbox": r.matched_face_bbox or "",
+                "confirmed": bool(r.confirmed),
                 "has_original": (
                     str(r.id) in original_ids
                     or bool(r.matched_photo_path and Path(r.matched_photo_path).exists())
@@ -246,6 +254,18 @@ def mark_activity_false_positive(activity_id: int, is_false_positive: bool) -> N
         row = db.query(ActivityLog).filter(ActivityLog.id == activity_id).first()
         if row:
             row.is_false_positive = is_false_positive
+            db.commit()
+    finally:
+        db.close()
+
+
+def mark_activity_confirmed(activity_id: int) -> None:
+    """Mark an activity entry as a user-confirmed true positive."""
+    db = SessionLocal()
+    try:
+        row = db.query(ActivityLog).filter(ActivityLog.id == activity_id).first()
+        if row:
+            row.confirmed = True
             db.commit()
     finally:
         db.close()
