@@ -143,6 +143,22 @@ def _find_original_media_path(activity_id: int, row) -> Path | None:
     return None
 
 
+def _matched_bboxes_with_media(activity_id: int, row) -> tuple[Path | None, dict]:
+    """Resolve (original media path, {kid_id: bbox}) for an activity row — the shared
+    lookup behind the negative-example and confirm-match flows, both of which need to
+    turn a stored bbox back into a fresh face embedding from the original image."""
+    if not row.matched_face_bbox:
+        return None, {}
+    media_path = _find_original_media_path(activity_id, row)
+    if media_path is None:
+        return None, {}
+    try:
+        bboxes = json.loads(row.matched_face_bbox)
+    except Exception:
+        bboxes = {}
+    return media_path, bboxes
+
+
 def _resolve_group(group_id: str, db_settings: dict) -> tuple[list, dict, str]:
     """Return (kid_ids, kid_names, group_name) from watch_groups config."""
     kid_ids, kid_names, group_name = [], {}, group_id
@@ -505,7 +521,7 @@ async def analyze_photo(request: Request, file: UploadFile,
         google_photos_url = ""
         whatsapp_message_id = ""
         if db_settings.get("thumbnails_enabled", "true") != "false":
-            boxes = _build_match_boxes(matched_kids) if result.get("matched") else None
+            boxes = _build_match_boxes(matched_kids)
             thumbnail_filename = _save_thumbnail(file_bytes, boxes=boxes, all_faces=result.get("all_faces"))
         gp_saved = False
         if result.get("matched"):
@@ -600,7 +616,7 @@ async def analyze_video(request: Request, file: UploadFile,
         forwarded = False
         gp_saved = False
         if best_frame_bytes and db_settings.get("thumbnails_enabled", "true") != "false":
-            boxes = _build_match_boxes(matched_kids) if result.get("matched") else None
+            boxes = _build_match_boxes(matched_kids)
             thumbnail_filename = _save_thumbnail(best_frame_bytes, boxes=boxes, all_faces=result.get("all_faces"))
         if result.get("matched"):
             video_filename = file.filename or "video.mp4"
@@ -656,19 +672,11 @@ async def rerun_actions(activity_id: int):
     if not row:
         raise HTTPException(status_code=404, detail="Activity row not found")
 
-    media_bytes: bytes | None = None
-    media_path: Path | None = None
-    if ORIGINALS_DIR.exists():
-        matches = list(ORIGINALS_DIR.glob(f"{activity_id}.*"))
-        if matches:
-            media_path = matches[0]
-    if media_path is None and row.matched_photo_path:
-        media_path = Path(row.matched_photo_path)
-    if media_path is not None:
-        try:
-            media_bytes = media_path.read_bytes()
-        except OSError:
-            pass
+    media_path = _find_original_media_path(activity_id, row)
+    try:
+        media_bytes = media_path.read_bytes() if media_path is not None else None
+    except OSError:
+        media_bytes = None
     if not media_bytes:
         raise HTTPException(status_code=404, detail="Original media no longer available (retention period may have expired)")
 
@@ -723,18 +731,14 @@ async def mark_false_positive(activity_id: int, request: Request):
 
     # Add negative example(s) BEFORE any file deletion, using the bbox captured at match time
     negative_example_added = False
-    if add_negative_example and is_false_positive and row.matched_face_bbox:
-        media_path = _find_original_media_path(activity_id, row)
+    if add_negative_example and is_false_positive:
+        media_path, bboxes = _matched_bboxes_with_media(activity_id, row)
         if media_path is not None:
-            try:
-                bboxes = json.loads(row.matched_face_bbox)
-            except Exception:
-                bboxes = {}
             face_service = request.app.state.face_service
             for kid_id, bbox in bboxes.items():
                 found = face_service.get_embedding_at_bbox(str(media_path), bbox)
                 if found is not None:
-                    embedding, _, _ = found
+                    embedding, *_ = found
                     face_service.add_negative_embedding(kid_id, embedding)
                     negative_example_added = True
 
@@ -803,25 +807,22 @@ async def confirm_match(activity_id: int, request: Request):
         raise HTTPException(status_code=400, detail="Cannot confirm an entry marked as false positive")
 
     added_to_pool = False
-    if row.matched_face_bbox:
-        media_path = _find_original_media_path(activity_id, row)
-        if media_path is not None:
-            try:
-                bboxes = json.loads(row.matched_face_bbox)
-            except Exception:
-                bboxes = {}
-            face_service = request.app.state.face_service
-            for kid_id, bbox in bboxes.items():
-                outcome = face_service.add_confirmed_embedding(kid_id, str(media_path), bbox, source_label=f"activity_{activity_id}")
-                if outcome.get("added"):
-                    added_to_pool = True
-                    meta = load_kid_meta(kid_id)
-                    meta[outcome["photo_id"]] = {
-                        "photo_id": outcome["photo_id"],
-                        "filename": outcome["filename"],
-                        "enrolled_at": datetime.now(timezone.utc).isoformat(),
-                    }
-                    save_kid_meta(kid_id, meta)
+    media_path, bboxes = _matched_bboxes_with_media(activity_id, row)
+    if media_path is not None:
+        face_service = request.app.state.face_service
+        for kid_id, bbox in bboxes.items():
+            outcome = face_service.add_confirmed_embedding(kid_id, str(media_path), bbox, source_label=f"activity_{activity_id}")
+            if outcome.get("added"):
+                added_to_pool = True
+                meta = load_kid_meta(kid_id)
+                meta[outcome["photo_id"]] = {
+                    "photo_id": outcome["photo_id"],
+                    "filename": outcome["filename"],
+                    "enrolled_at": datetime.now(timezone.utc).isoformat(),
+                }
+                save_kid_meta(kid_id, meta)
+            else:
+                print(f"[backend] Confirmed match not added to pool ({outcome.get('reason')}) for kid {kid_id}", flush=True)
 
     mark_activity_confirmed(activity_id)
     return {"ok": True, "confirmed": True, "added_to_pool": added_to_pool}
@@ -1020,7 +1021,7 @@ async def retry_failed_media(request: Request, filename: str, kid_ids: str = "")
 
         thumbnail_filename = ""
         if best_frame_bytes and db_settings.get("thumbnails_enabled", "true") != "false":
-            boxes = _build_match_boxes(matched_kids) if result.get("matched") else None
+            boxes = _build_match_boxes(matched_kids)
             thumbnail_filename = _save_thumbnail(best_frame_bytes, boxes=boxes, all_faces=result.get("all_faces"))
 
         matched_photo_path = ""

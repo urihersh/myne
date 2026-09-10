@@ -72,6 +72,23 @@ def _bbox_center_dist(a, b) -> float:
     return ((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5
 
 
+def _best_match(face_embeddings: list, stored: list) -> tuple[float, int]:
+    """Return (best_similarity, index into face_embeddings) for the face closest to any
+    stored embedding. Shared by analyze_photo and analyze_video's per-frame scoring."""
+    best_conf, best_idx = -1.0, -1
+    for i, fe in enumerate(face_embeddings):
+        for se in stored:
+            d = float(np.dot(fe, se))
+            if d > best_conf:
+                best_conf, best_idx = d, i
+    return best_conf, best_idx
+
+
+def _negative_confidence(face_embedding, negatives: list) -> float:
+    """Similarity of one face embedding to the closest stored negative example (0.0 if none)."""
+    return max((float(np.dot(face_embedding, ne)) for ne in negatives), default=0.0)
+
+
 DEFAULT_THRESHOLD = 0.35
 NEG_MARGIN = 0.0  # suppress a match if similarity-to-negative >= similarity-to-positive - this margin
 
@@ -177,12 +194,12 @@ class FaceService:
 
     def get_embedding_at_bbox(
         self, image_path: str, target_bbox: list[float]
-    ) -> tuple[np.ndarray, list, list] | None:
+    ) -> tuple[np.ndarray, list, list, tuple[int, int]] | None:
         """Re-detect faces in the original image and return the embedding of whichever
         detected face is closest to `target_bbox` — used to turn a bbox stored on an
         activity-log row back into a fresh embedding for negative/confirmed enrollment.
 
-        Returns (normed_embedding, matched_bbox, all_faces_bboxes) or None.
+        Returns (normed_embedding, matched_bbox, all_faces_bboxes, image_shape) or None.
         """
         try:
             img = self._read(image_path)
@@ -191,7 +208,7 @@ class FaceService:
                 return None
             best_face = min(faces, key=lambda f: _bbox_center_dist(f.bbox, target_bbox))
             all_bboxes = [f.bbox.tolist() for f in faces]
-            return best_face.normed_embedding, best_face.bbox.tolist(), all_bboxes
+            return best_face.normed_embedding, best_face.bbox.tolist(), all_bboxes, img.shape[:2]
         except Exception:
             return None
 
@@ -242,15 +259,11 @@ class FaceService:
         found = self.get_embedding_at_bbox(image_path, bbox)
         if found is None:
             return {"added": False, "reason": "face_not_found"}
-        embedding, matched_bbox, all_bboxes = found
+        embedding, matched_bbox, _, (img_h, img_w) = found
 
-        try:
-            img = self._read(image_path)
-            face_area = (matched_bbox[2] - matched_bbox[0]) * (matched_bbox[3] - matched_bbox[1])
-            img_area = img.shape[0] * img.shape[1]
-            ratio = face_area / img_area if img_area else 0.0
-        except Exception:
-            ratio = 0.0
+        face_area = (matched_bbox[2] - matched_bbox[0]) * (matched_bbox[3] - matched_bbox[1])
+        img_area = img_h * img_w
+        ratio = face_area / img_area if img_area else 0.0
         if ratio < 0.02:
             return {"added": False, "reason": "face_too_small"}
 
@@ -291,14 +304,14 @@ class FaceService:
         self._neg_cache[kid_id] = result
         return result
 
-    def analyze_photo(self, image_path: str, kid_ids: list[str], thresholds: dict[str, float] | float = DEFAULT_THRESHOLD) -> dict:
+    def analyze_photo(self, image_path: str, kid_ids: list[str], thresholds: dict[str, float]) -> dict:
         """Check a photo against all specified kids.
 
         Returns overall match status, per-kid breakdown (incl. which face matched), and face count.
         Uses cosine similarity (= dot product on unit-length normed embeddings).
 
-        `thresholds` may be a single float (applied to all kids) or a dict of kid_id -> threshold,
-        allowing a kid-specific override to coexist with the global default.
+        `thresholds` maps kid_id -> effective threshold, letting a kid-specific override
+        coexist with the global default (the caller resolves the fallback).
         """
         try:
             faces = _get_model().get(self._read(image_path))
@@ -315,25 +328,16 @@ class FaceService:
             stored = self._load_embeddings(kid_id)
             if not stored:
                 continue
-            threshold = thresholds.get(kid_id, DEFAULT_THRESHOLD) if isinstance(thresholds, dict) else thresholds
-
-            best_conf, best_idx = -1.0, -1
-            for i, fe in enumerate(face_embeddings):
-                for se in stored:
-                    d = float(np.dot(fe, se))
-                    if d > best_conf:
-                        best_conf, best_idx = d, i
+            best_conf, best_idx = _best_match(face_embeddings, stored)
 
             negatives = self._load_negative_embeddings(kid_id)
-            neg_conf = 0.0
-            if negatives and best_idx >= 0:
-                neg_conf = max(float(np.dot(face_embeddings[best_idx], ne)) for ne in negatives)
+            neg_conf = _negative_confidence(face_embeddings[best_idx], negatives) if negatives else 0.0
             suppressed = bool(negatives) and neg_conf >= best_conf - NEG_MARGIN
 
             kid_results.append({
                 "kid_id": kid_id,
                 "confidence": round(best_conf, 4),
-                "matched": best_conf >= threshold and not suppressed,
+                "matched": best_conf >= thresholds.get(kid_id, DEFAULT_THRESHOLD) and not suppressed,
                 "bbox": all_faces_bboxes[best_idx] if best_idx >= 0 else None,
                 "suppressed_by_negative": suppressed,
                 "neg_confidence": round(neg_conf, 4) if negatives else None,
@@ -350,7 +354,7 @@ class FaceService:
         self,
         video_path: str,
         kid_ids: list[str],
-        thresholds: dict[str, float] | float = DEFAULT_THRESHOLD,
+        thresholds: dict[str, float],
     ) -> dict:
         """Sample frames from a video and match against enrolled kids.
 
@@ -446,16 +450,11 @@ class FaceService:
                     stored = stored_embeddings.get(kid_id)
                     if not stored:
                         continue
-                    best_conf, best_idx = -1.0, -1
-                    for i, fe in enumerate(face_embeddings):
-                        for se in stored:
-                            d = float(np.dot(fe, se))
-                            if d > best_conf:
-                                best_conf, best_idx = d, i
+                    best_conf, best_idx = _best_match(face_embeddings, stored)
 
                     negatives = negative_embeddings.get(kid_id)
                     if negatives and best_idx >= 0:
-                        neg_conf = max(float(np.dot(face_embeddings[best_idx], ne)) for ne in negatives)
+                        neg_conf = _negative_confidence(face_embeddings[best_idx], negatives)
                         if neg_conf >= best_conf - NEG_MARGIN:
                             frame_had_suppression = True
                             continue  # this frame's face looks like a known look-alike — skip as evidence
@@ -483,8 +482,7 @@ class FaceService:
                 # (confident match already established, no need to scan entire video)
                 for kid_id in kid_ids:
                     top = kid_top_confs[kid_id]
-                    kid_threshold = thresholds.get(kid_id, DEFAULT_THRESHOLD) if isinstance(thresholds, dict) else thresholds
-                    if len(top) >= 3 and min(top[:3]) >= kid_threshold:
+                    if len(top) >= 3 and min(top[:3]) >= thresholds.get(kid_id, DEFAULT_THRESHOLD):
                         cap.release()
                         break
                 else:
@@ -507,11 +505,10 @@ class FaceService:
                 continue
             top = kid_top_confs[kid_id]
             final_conf = sum(top) / len(top) if top else 0.0
-            kid_threshold = thresholds.get(kid_id, DEFAULT_THRESHOLD) if isinstance(thresholds, dict) else thresholds
             kid_results.append({
                 "kid_id": kid_id,
                 "confidence": round(final_conf, 4),
-                "matched": final_conf >= kid_threshold,
+                "matched": final_conf >= thresholds.get(kid_id, DEFAULT_THRESHOLD),
                 "bbox": best_frame_bboxes.get(kid_id),
             })
 
