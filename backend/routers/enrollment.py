@@ -52,6 +52,7 @@ async def list_kids(request: Request):
     face_service = request.app.state.face_service
     for k in kids:
         k["enrolled_count"] = face_service.get_enrolled_count(k["id"])
+        k["negative_count"] = face_service.get_negative_count(k["id"])
     return {"kids": kids}
 
 
@@ -88,6 +89,17 @@ async def rename_kid(kid_id: str, request: Request):
 
     save_kids(kids)
     return kid
+
+
+@router.delete("/kids/{kid_id}/negative-examples")
+async def clear_negative_examples(kid_id: str, request: Request):
+    """Undo path for the 'teach the system this isn't them' action — clears all stored
+    negative examples for a kid in case one was added by mistake."""
+    kids = load_kids()
+    if not any(k["id"] == kid_id for k in kids):
+        raise HTTPException(status_code=404, detail="Kid not found")
+    removed = request.app.state.face_service.clear_negative_embeddings(kid_id)
+    return {"success": True, "removed": removed}
 
 
 @router.delete("/kids/{kid_id}")

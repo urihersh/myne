@@ -223,6 +223,12 @@
             <p class="text-xs text-gray-400" data-i18n="kid_threshold_hint">Overrides the global Match Confidence just for this kid — useful if they're often confused with someone who looks similar.</p>
           </div>
 
+          <!-- Negative examples ("taught not them") -->
+          <div id="kid-negatives-row" class="hidden mb-5 flex items-center justify-between bg-amber-50 rounded-xl px-3 py-2">
+            <span class="text-xs text-amber-700" id="kid-negatives-count"></span>
+            <button onclick="clearKidNegatives()" class="text-xs font-medium text-amber-700 hover:text-amber-900 underline" data-i18n="clear_negatives">Clear</button>
+          </div>
+
           <!-- Upload area -->
           <div id="drop-zone" class="border-2 border-dashed border-gray-200 rounded-2xl p-8 text-center cursor-pointer hover:border-emerald-400 hover:bg-emerald-50 transition-colors mb-5">
             <p class="text-gray-700 font-medium mb-1" data-i18n="drop_photos">Drop photos here or click to upload</p>
@@ -1461,8 +1467,11 @@
       kids = d.kids || [];
       if (selectedKid) {
         const still = kids.find(k => k.id === selectedKid.id);
-        if (still) { selectedKid = still; document.getElementById('kid-detail-count').textContent = tpl('kid_photos', still.enrolled_count); }
-        else { closeKidDetail(); }
+        if (still) {
+          selectedKid = still;
+          document.getElementById('kid-detail-count').textContent = tpl('kid_photos', still.enrolled_count);
+          renderKidThresholdAndNegatives(still);
+        } else { closeKidDetail(); }
       }
       renderKidsGrid();
       document.getElementById('kids-subtitle').textContent = tpl('kids_subtitle', kids.length, { photos: kids.reduce((s, k) => s + k.enrolled_count, 0) });
@@ -1494,6 +1503,20 @@
       grid.innerHTML = html;
     }
 
+    function renderKidThresholdAndNegatives(kid) {
+      const hasCustomThreshold = kid.confidence_threshold != null;
+      document.getElementById('kid-threshold-toggle').checked = hasCustomThreshold;
+      document.getElementById('kid-threshold-row').classList.toggle('hidden', !hasCustomThreshold);
+      const globalPct = parseInt(document.getElementById('threshold-slider')?.value || '60');
+      const pct = hasCustomThreshold ? Math.round(kid.confidence_threshold * 100) : globalPct;
+      document.getElementById('kid-threshold-slider').value = pct;
+      document.getElementById('kid-threshold-value').textContent = pct + '%';
+
+      const negCount = kid.negative_count || 0;
+      document.getElementById('kid-negatives-row').classList.toggle('hidden', negCount === 0);
+      document.getElementById('kid-negatives-count').textContent = tpl('negatives_count', negCount);
+    }
+
     function selectKid(kidId) {
       const kid = kids.find(k => k.id === kidId);
       if (!kid) return;
@@ -1503,13 +1526,7 @@
       document.getElementById('kid-detail-count').textContent = tpl('kid_photos', kid.enrolled_count);
       document.getElementById('delete-kid-btn').onclick = () => deleteKid(kid.id, kid.name);
 
-      const hasCustomThreshold = kid.confidence_threshold != null;
-      document.getElementById('kid-threshold-toggle').checked = hasCustomThreshold;
-      document.getElementById('kid-threshold-row').classList.toggle('hidden', !hasCustomThreshold);
-      const globalPct = parseInt(document.getElementById('threshold-slider')?.value || '60');
-      const pct = hasCustomThreshold ? Math.round(kid.confidence_threshold * 100) : globalPct;
-      document.getElementById('kid-threshold-slider').value = pct;
-      document.getElementById('kid-threshold-value').textContent = pct + '%';
+      renderKidThresholdAndNegatives(kid);
 
       renderKidsGrid();
       pending = [];
@@ -1536,14 +1553,29 @@
       const useCustom = document.getElementById('kid-threshold-toggle').checked;
       const value = useCustom ? parseInt(document.getElementById('kid-threshold-slider').value) / 100 : null;
       try {
-        await fetch(`/api/enrollment/kids/${selectedKid.id}`, {
+        const r = await fetch(`/api/enrollment/kids/${selectedKid.id}`, {
           method: 'PATCH', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ confidence_threshold: value })
         });
+        if (!r.ok) { showToast(t('failed_save_settings'), 'error'); return; }
         selectedKid.confidence_threshold = value;
         const kid = kids.find(k => k.id === selectedKid.id);
         if (kid) kid.confidence_threshold = value;
         renderKidsGrid();
+      } catch (_) { showToast(t('failed_save_settings'), 'error'); }
+    }
+
+    async function clearKidNegatives() {
+      if (!selectedKid) return;
+      if (!confirm(t('clear_negatives_confirm'))) return;
+      try {
+        const r = await fetch(`/api/enrollment/kids/${selectedKid.id}/negative-examples`, { method: 'DELETE' });
+        if (!r.ok) { showToast(t('failed_save_settings'), 'error'); return; }
+        selectedKid.negative_count = 0;
+        const kid = kids.find(k => k.id === selectedKid.id);
+        if (kid) kid.negative_count = 0;
+        document.getElementById('kid-negatives-row').classList.add('hidden');
+        showToast(t('negatives_cleared'));
       } catch (_) { showToast(t('failed_save_settings'), 'error'); }
     }
 

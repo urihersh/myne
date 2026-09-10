@@ -248,6 +248,20 @@ class FaceService:
         self._neg_cache.pop(kid_id, None)
         return photo_id
 
+    def get_negative_count(self, kid_id: str) -> int:
+        d = self.kids_dir / kid_id / "negative_embeddings"
+        return len(list(d.glob("*.npy"))) if d.exists() else 0
+
+    def clear_negative_embeddings(self, kid_id: str) -> int:
+        """Remove all negative examples for a kid — the undo path for a mistaken
+        'teach the system this isn't them' click, since there's no per-example UI."""
+        d = self.kids_dir / kid_id / "negative_embeddings"
+        removed = list(d.glob("*.npy")) if d.exists() else []
+        for f in removed:
+            f.unlink(missing_ok=True)
+        self._neg_cache.pop(kid_id, None)
+        return len(removed)
+
     def add_confirmed_embedding(self, kid_id: str, image_path: str, bbox: list[float], source_label: str = "") -> dict:
         """Auto-enroll a face from a user-confirmed true-positive match.
 

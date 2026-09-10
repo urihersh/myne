@@ -143,13 +143,38 @@ def _find_original_media_path(activity_id: int, row) -> Path | None:
     return None
 
 
+_VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".webm"}
+
+
+def _find_still_image_path(activity_id: int, row) -> Path | None:
+    """Return a still image usable for re-running face detection (negative-example and
+    confirm-match features both need this — cv2 can't detect faces directly on a video
+    file). For photos, the original media IS a still image. For videos, use the analyzed
+    frame saved separately by _save_analyzed_frame(); if that's missing (e.g. rows logged
+    before this existed), there's no still image to re-detect on."""
+    frame_path = ORIGINALS_DIR / f"{activity_id}_frame.jpg"
+    if frame_path.exists():
+        return frame_path
+    media_path = _find_original_media_path(activity_id, row)
+    if media_path is not None and media_path.suffix.lower() in _VIDEO_EXTS:
+        return None
+    return media_path
+
+
+def _save_analyzed_frame(frame_bytes: bytes | None, row_id: int) -> None:
+    """Persist the exact frame a video match was scored on, so negative-example/confirm-match
+    can later re-run face detection on it (the video file itself isn't readable by cv2.imread)."""
+    if frame_bytes:
+        _save_original(frame_bytes, row_id, "_frame.jpg")
+
+
 def _matched_bboxes_with_media(activity_id: int, row) -> tuple[Path | None, dict]:
-    """Resolve (original media path, {kid_id: bbox}) for an activity row — the shared
-    lookup behind the negative-example and confirm-match flows, both of which need to
-    turn a stored bbox back into a fresh face embedding from the original image."""
+    """Resolve (still-image path, {kid_id: bbox}) for an activity row — the shared lookup
+    behind the negative-example and confirm-match flows, both of which need to turn a
+    stored bbox back into a fresh face embedding."""
     if not row.matched_face_bbox:
         return None, {}
-    media_path = _find_original_media_path(activity_id, row)
+    media_path = _find_still_image_path(activity_id, row)
     if media_path is None:
         return None, {}
     try:
@@ -442,18 +467,14 @@ async def get_activity_face_crop(activity_id: int, request: Request, kid_id: str
     """Crop the matched face out of the original image for a given kid — used to preview
     exactly which face is being excluded when marking a false positive."""
     row = get_activity_by_id(activity_id)
-    if not row or not row.matched_face_bbox:
-        raise HTTPException(status_code=404, detail="No matched-face data for this activity")
-    try:
-        bboxes = json.loads(row.matched_face_bbox)
-    except Exception:
-        bboxes = {}
+    if not row:
+        raise HTTPException(status_code=404, detail="Activity row not found")
+    media_path, bboxes = _matched_bboxes_with_media(activity_id, row)
+    if media_path is None:
+        raise HTTPException(status_code=404, detail="No still image available for this activity")
     bbox = bboxes.get(kid_id) or (next(iter(bboxes.values())) if bboxes else None)
     if not bbox:
         raise HTTPException(status_code=404, detail="No bbox found for this kid")
-    media_path = _find_original_media_path(activity_id, row)
-    if media_path is None:
-        raise HTTPException(status_code=404, detail="Original media no longer available")
     face_service = request.app.state.face_service
     crop_b64 = face_service.get_face_crop_b64_at_bbox(str(media_path), bbox)
     if not crop_b64:
@@ -660,6 +681,8 @@ async def analyze_video(request: Request, file: UploadFile,
                 matched_face_bbox=_matched_face_bbox_json(matched_kids),
             )
             _save_original(file_bytes, row_id, suffix)
+            if result.get("matched"):
+                _save_analyzed_frame(best_frame_bytes, row_id)
         return result
     finally:
         temp_path.unlink(missing_ok=True)
@@ -680,7 +703,7 @@ async def rerun_actions(activity_id: int):
     if not media_bytes:
         raise HTTPException(status_code=404, detail="Original media no longer available (retention period may have expired)")
 
-    is_video = media_path.suffix.lower() in {".mp4", ".mov", ".avi", ".mkv", ".webm"}
+    is_video = media_path.suffix.lower() in _VIDEO_EXTS
     settings = get_settings()
     matched_kids = [{"kid_name": n.strip(), "kid_id": n.strip()}
                     for n in (row.kid_names or "").split(",") if n.strip()]
@@ -970,7 +993,7 @@ async def list_failed_media():
                     "filename": f.name,
                     "size": stat.st_size,
                     "timestamp": datetime.fromtimestamp(stat.st_mtime).isoformat() + "Z",
-                    "is_video": f.suffix.lower() in {".mp4", ".mov", ".avi", ".mkv", ".webm"},
+                    "is_video": f.suffix.lower() in _VIDEO_EXTS,
                 })
         return {"files": files}
     except Exception as e:
@@ -987,7 +1010,7 @@ async def retry_failed_media(request: Request, filename: str, kid_ids: str = "")
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
 
-    is_video = file_path.suffix.lower() in {".mp4", ".mov", ".avi", ".mkv", ".webm"}
+    is_video = file_path.suffix.lower() in _VIDEO_EXTS
     db_settings = get_settings()
 
     if not kid_ids:
@@ -1068,6 +1091,8 @@ async def retry_failed_media(request: Request, filename: str, kid_ids: str = "")
             matched_face_bbox=_matched_face_bbox_json(matched_kids),
         )
         _save_original(file_bytes, row_id, file_path.suffix)
+        if is_video and result.get("matched"):
+            _save_analyzed_frame(best_frame_bytes, row_id)
 
         # Delete from failed directory on success
         file_path.unlink()
